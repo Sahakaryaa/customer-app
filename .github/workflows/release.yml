@@ -1,0 +1,114 @@
+name: SahaKarya Customer App — Build & Release APK
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release:
+    name: Build Android Release APK & Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java Development Kit (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter Environment
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:-:arch:'
+
+      - name: Verify Flutter Installation
+        run: flutter --version
+
+      - name: Install Project Dependencies
+        run: flutter pub get
+
+      - name: Build Android Release APK
+        run: flutter build apk --release
+
+      - name: Build Android App Bundle (AAB)
+        run: flutter build appbundle --release
+
+      - name: Prepare Release Artifacts
+        id: prepare_artifacts
+        run: |
+          VERSION="${{ github.event.inputs.release_tag }}"
+          if [ -z "$VERSION" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              VERSION="${GITHUB_REF#refs/tags/}"
+            else
+              VERSION="v1.0.0-build.$(date +'%Y%m%d%H%M')"
+            fi
+          fi
+          echo "RELEASE_TAG=$VERSION" >> $GITHUB_ENV
+          
+          mkdir -p release-artifacts
+          cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/SahaKarya-Customer-$VERSION.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "release-artifacts/SahaKarya-Customer-$VERSION.aab"
+          
+          echo "Generated APK: SahaKarya-Customer-$VERSION.apk"
+          echo "Generated AAB: SahaKarya-Customer-$VERSION.aab"
+
+      - name: Upload Artifacts to Workflow Run
+        uses: actions/upload-artifact@v4
+        with:
+          name: sahakarya-customer-android-build
+          path: release-artifacts/*
+          retention-days: 30
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "SahaKarya Customer App ${{ env.RELEASE_TAG }}"
+          body: |
+            ## 🤝 SahaKarya Customer Mobile App Release (${{ env.RELEASE_TAG }})
+            
+            **Empowering Labour Cooperative Federations with Fair, AI-Driven Digital Service Discovery**
+            
+            ### 📦 Download Assets
+            - 📱 **Android APK**: `SahaKarya-Customer-${{ env.RELEASE_TAG }}.apk` (Direct Device Installation)
+            - 📦 **Android App Bundle**: `SahaKarya-Customer-${{ env.RELEASE_TAG }}.aab` (Google Play Store format)
+            
+            ### ✨ Included Highlights
+            - 📍 **Geospatial Discovery**: High-efficiency 2dsphere nearest cooperative worker discovery.
+            - 🏷️ **Cooperative Verified Badge**: Institutional trust badge on verified federation trade workers.
+            - ⏱️ **Live Status Stepper**: Real-time WebSocket dispatch monitoring (Requested → Matched → In Progress → Completed).
+            - 💳 **Transparent Payouts**: 95% direct worker payout with 5% ring-fenced welfare contribution.
+            
+            ---
+            *Built automatically by SahaKarya CI/CD Pipeline on Flutter 3.29*
+          files: |
+            release-artifacts/*.apk
+            release-artifacts/*.aab
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
