@@ -247,20 +247,31 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                     maxZoom: 18.0,
                   ),
                   children: [
-                    // Carto Voyager Crisp Tile Layer
+                    // Real Google Maps Roadmap Tile Layer
                     TileLayer(
-                      urlTemplate: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                      urlTemplate: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                      subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
                       userAgentPackageName: 'com.sahakarya.customer_app',
+                      maxZoom: 20,
                     ),
 
-                    // Approach Route Polyline
+                    // Approach Route Polyline (Google Maps double stroke style)
                     if (_routePoints.isNotEmpty)
                       PolylineLayer(
                         polylines: [
                           Polyline(
                             points: _routePoints,
-                            color: AppColors.teal.withValues(alpha: 0.85),
-                            strokeWidth: 4.5,
+                            color: const Color(0xFF0F4C5C).withValues(alpha: 0.9),
+                            strokeWidth: 6.0,
+                            strokeCap: StrokeCap.round,
+                            strokeJoin: StrokeJoin.round,
+                          ),
+                          Polyline(
+                            points: _routePoints,
+                            color: const Color(0xFF14B8A6),
+                            strokeWidth: 4.0,
+                            strokeCap: StrokeCap.round,
+                            strokeJoin: StrokeJoin.round,
                           ),
                         ],
                       ),

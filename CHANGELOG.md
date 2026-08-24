@@ -6,6 +6,23 @@ This document tracks all changes, additions, modifications, and removals perform
 
 ## 📅 Run History & Iteration Logs
 
+### [Run 5] — 2026-08-24: Real Google Maps Roadmap Layer Integration
+
+#### 🎯 Objectives
+Upgrade map rendering across discovery and tracking screens to real Google Maps roadmap tiles with double-stroke polyline routing.
+
+#### ✏️ Modified
+- **`lib/screens/live_tracking/tracking_screen.dart`**:
+  - Replaced Carto tiles with real Google Maps Roadmap tile server (`https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}` with subdomains `['mt0', 'mt1', 'mt2', 'mt3']`).
+  - Added double-stroke Google Maps styled navigation polyline (dark border with cyan route).
+- **`lib/screens/worker_discovery/worker_list_screen.dart`**:
+  - Upgraded discovery map view to Google Maps roadmap tile layer.
+
+#### 🔍 Verification & Lint Status
+- `dart analyze`: **0 errors, 0 warnings, 0 issues**.
+
+---
+
 ### [Run 4] — 2026-08-24: Fix /book Route Resolution & BookingFlow Parameters
 
 #### 🎯 Objectives

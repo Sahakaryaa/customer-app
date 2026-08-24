@@ -294,8 +294,10 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
           children: [
             TileLayer(
               urlTemplate:
-                  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                  'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+              subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
               userAgentPackageName: 'com.sahakarya.customer_app',
+              maxZoom: 20,
             ),
 
             // Markers Layer with Radar Pulse on User Pin
