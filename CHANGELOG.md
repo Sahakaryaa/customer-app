@@ -6,6 +6,23 @@ This document tracks all changes, additions, modifications, and removals perform
 
 ## 📅 Run History & Iteration Logs
 
+### [Run 4] — 2026-08-24: Fix /book Route Resolution & BookingFlow Parameters
+
+#### 🎯 Objectives
+Resolve `GoException: no routes for location: /book?...` by registering `/book` path and parameter bindings.
+
+#### ➕ Added
+- Registered `/book` route in `lib/router.dart` supporting `worker`, `workerId`, `service`, and `workerName` query parameters.
+
+#### ✏️ Modified
+- **`lib/router.dart`**: Handled both `/book` and `/booking/new` aliases uniformly.
+- **`lib/screens/booking_flow/booking_flow_screen.dart`**: Added constructor and `initState` support for `service` and `workerName` parameters passed from the worker profile screen.
+
+#### 🔍 Verification & Lint Status
+- `dart analyze`: **0 errors, 0 warnings, 0 issues**.
+
+---
+
 ### [Run 3] — 2026-08-24: Immersive UI/UX Refinements (Design Skill v2.0)
 
 #### 🎯 Objectives

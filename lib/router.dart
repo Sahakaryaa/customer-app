@@ -89,8 +89,29 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/booking/new',
         builder: (context, state) {
-          final workerId = state.uri.queryParameters['worker'];
-          return BookingFlowScreen(workerId: workerId);
+          final workerId = state.uri.queryParameters['worker'] ??
+              state.uri.queryParameters['workerId'];
+          final service = state.uri.queryParameters['service'];
+          final workerName = state.uri.queryParameters['workerName'];
+          return BookingFlowScreen(
+            workerId: workerId,
+            service: service,
+            workerName: workerName,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/book',
+        builder: (context, state) {
+          final workerId = state.uri.queryParameters['worker'] ??
+              state.uri.queryParameters['workerId'];
+          final service = state.uri.queryParameters['service'];
+          final workerName = state.uri.queryParameters['workerName'];
+          return BookingFlowScreen(
+            workerId: workerId,
+            service: service,
+            workerName: workerName,
+          );
         },
       ),
 

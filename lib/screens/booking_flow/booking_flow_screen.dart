@@ -12,8 +12,15 @@ import '../../services/location_service.dart';
 /// Multi-step booking flow: address → date/time → details → confirm.
 class BookingFlowScreen extends ConsumerStatefulWidget {
   final String? workerId;
+  final String? service;
+  final String? workerName;
 
-  const BookingFlowScreen({super.key, this.workerId});
+  const BookingFlowScreen({
+    super.key,
+    this.workerId,
+    this.service,
+    this.workerName,
+  });
 
   @override
   ConsumerState<BookingFlowScreen> createState() => _BookingFlowScreenState();
@@ -34,7 +41,8 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedService = ref.read(selectedServiceProvider);
+    _selectedService = widget.service ?? ref.read(selectedServiceProvider);
+    _workerName = widget.workerName;
 
     final activeLoc = ref.read(userLocationStateProvider);
     _address = '${activeLoc.areaName}, ${activeLoc.subDistrict}';
@@ -43,7 +51,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
     if (widget.workerId != null) {
       final workers = MockDataService.getMockWorkers();
       final w = workers.where((w) => w.id == widget.workerId).firstOrNull;
-      _workerName = w?.name;
+      _workerName ??= w?.name;
       if (w != null && _selectedService == null && w.skills.isNotEmpty) {
         _selectedService = w.skills.first;
       }
