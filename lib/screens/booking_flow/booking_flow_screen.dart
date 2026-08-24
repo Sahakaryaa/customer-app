@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
 import '../../providers/nearby_workers_provider.dart';
 import '../../services/mock_data_service.dart';
 import '../../widgets/primary_button.dart';
-
 import '../../services/location_service.dart';
 
 /// Multi-step booking flow: address → date/time → details → confirm.
+/// Enhanced with animated transitions and transparent cooperative math breakdown.
 class BookingFlowScreen extends ConsumerStatefulWidget {
   final String? workerId;
   final String? service;
@@ -59,6 +61,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
   }
 
   Future<void> _autoDetectAddress() async {
+    HapticFeedback.lightImpact();
     setState(() => _isDetectingLocation = true);
     try {
       final locService = ref.read(locationServiceProvider);
@@ -71,7 +74,8 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
           );
       if (mounted) {
         setState(() {
-          _address = '$area, Lat: ${coords.latitude.toStringAsFixed(3)}, Lng: ${coords.longitude.toStringAsFixed(3)}';
+          _address =
+              '$area, Lat: ${coords.latitude.toStringAsFixed(3)}, Lng: ${coords.longitude.toStringAsFixed(3)}';
           _isDetectingLocation = false;
         });
       }
@@ -80,36 +84,59 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
     }
   }
 
+  double _getBaseServicePrice() {
+    final service = _selectedService ?? 'electrician';
+    switch (service) {
+      case 'electrician':
+        return 450.0;
+      case 'plumber':
+        return 400.0;
+      case 'carpenter':
+        return 550.0;
+      case 'cleaner':
+        return 350.0;
+      case 'painter':
+        return 650.0;
+      case 'caregiver':
+        return 500.0;
+      case 'gardener':
+        return 300.0;
+      default:
+        return 450.0;
+    }
+  }
+
   Future<void> _confirmBooking() async {
+    HapticFeedback.mediumImpact();
     setState(() => _isBooking = true);
 
     // Simulate booking creation
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 900));
 
     final bookingId = 'b_${DateTime.now().millisecondsSinceEpoch}';
 
     setState(() => _isBooking = false);
 
     if (mounted) {
-      // Show success and navigate to tracking
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 70,
-                height: 70,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.1),
+                  color: AppColors.success.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.check_circle_rounded,
-                    size: 44, color: AppColors.success),
-              ),
+                    size: 48, color: AppColors.success),
+              ).animate().scale(duration: 400.ms, curve: Curves.elasticOut),
               const SizedBox(height: 16),
               Text('Booking Confirmed!',
                   style: GoogleFonts.sora(
@@ -119,17 +146,17 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
                   )),
               const SizedBox(height: 8),
               Text(
-                'Finding a cooperative-verified worker near you...',
+                'Assigned to ${_workerName ?? "verified cooperative worker"}.\nDispatch route generated in real-time.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   color: AppColors.inkLight,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
               PrimaryButton(
-                label: 'Track Booking',
-                icon: Icons.location_on_rounded,
+                label: 'Track Partner on Live Map',
+                icon: Icons.navigation_rounded,
                 onPressed: () {
                   Navigator.of(ctx).pop();
                   context.go('/booking/$bookingId/tracking');
@@ -155,18 +182,32 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
           // Step indicator
           _buildStepIndicator(),
 
-          // Step content
+          // Animated Step content
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.04, 0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
                 child: _buildCurrentStep(),
               ),
             ),
           ),
 
-          // Bottom buttons
+          // Bottom action button bar
           _buildBottomBar(),
         ],
       ),
@@ -174,9 +215,10 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
   }
 
   Widget _buildStepIndicator() {
-    const steps = ['Address', 'Schedule', 'Details', 'Confirm'];
+    final steps = ['Address', 'Schedule', 'Details', 'Confirm'];
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       color: AppColors.surface,
       child: Row(
         children: List.generate(steps.length * 2 - 1, (i) {
@@ -184,7 +226,9 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
             return Expanded(
               child: Container(
                 height: 2,
-                color: i ~/ 2 < _currentStep ? AppColors.teal : AppColors.border,
+                color: i ~/ 2 < _currentStep
+                    ? AppColors.teal
+                    : AppColors.border,
               ),
             );
           }
@@ -202,7 +246,8 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
                       ? AppColors.orange
                       : AppColors.bg,
               border: Border.all(
-                color: isDone || isActive ? Colors.transparent : AppColors.border,
+                color:
+                    isDone || isActive ? Colors.transparent : AppColors.border,
                 width: 2,
               ),
             ),
@@ -246,7 +291,9 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
       children: [
         Text('Service Address',
             style: GoogleFonts.sora(
-                fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink)),
         const SizedBox(height: 8),
         Text('Confirm or change your service location',
             style: GoogleFonts.inter(fontSize: 14, color: AppColors.inkLight)),
@@ -260,14 +307,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.teal.withValues(alpha: 0.3)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              border: Border.all(color: AppColors.border),
             ),
             child: Row(
               children: [
@@ -275,69 +315,98 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: AppColors.teal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: _isDetectingLocation
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.teal,
-                          ),
-                        )
-                      : const Icon(Icons.my_location_rounded,
-                          color: AppColors.teal, size: 22),
+                  child: const Icon(Icons.location_on_rounded,
+                      color: AppColors.teal, size: 22),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Service GPS Location (Tap to Refresh)',
-                          style: GoogleFonts.inter(
-                              fontSize: 12, color: AppColors.teal, fontWeight: FontWeight.w600)),
+                      Text(
+                        'Detected Location',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: AppColors.inkMuted,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(_address,
-                          style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.ink)),
+                      Text(
+                        _address,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.ink,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const Icon(Icons.refresh_rounded, size: 20, color: AppColors.teal),
+                if (_isDetectingLocation)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  const Icon(Icons.my_location_rounded,
+                      size: 20, color: AppColors.teal),
               ],
             ),
           ),
         ),
         const SizedBox(height: 16),
 
-        // Emergency toggle
+        // Manual address input
+        TextField(
+          decoration: InputDecoration(
+            labelText: 'Flat / Street / Landmark',
+            hintText: 'e.g. Flat 302, Green Valley Apts',
+            prefixIcon: const Icon(Icons.edit_location_alt_rounded),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          onChanged: (v) {
+            if (v.trim().isNotEmpty) {
+              setState(() => _address = v.trim());
+            }
+          },
+        ),
+        const SizedBox(height: 16),
+
+        // Emergency fast-track toggle
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: _isEmergency
-                ? AppColors.orange.withValues(alpha: 0.1)
+                ? AppColors.orange.withValues(alpha: 0.08)
                 : AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: _isEmergency ? AppColors.orange : AppColors.border,
             ),
           ),
           child: Row(
             children: [
-              Icon(Icons.flash_on_rounded,
-                  color: _isEmergency ? AppColors.orange : AppColors.inkMuted),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.flash_on_rounded,
+                    color: AppColors.orange, size: 22),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Emergency Booking',
+                    Text('Emergency Fast-Track Dispatch',
                         style: GoogleFonts.inter(
                             fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('Get a worker within minutes',
+                    Text('Nearest available partner dispatched in ~5 mins',
                         style: GoogleFonts.inter(
                             fontSize: 12, color: AppColors.inkLight)),
                   ],
@@ -346,7 +415,10 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
               Switch(
                 value: _isEmergency,
                 activeThumbColor: AppColors.orange,
-                onChanged: (v) => setState(() => _isEmergency = v),
+                onChanged: (v) {
+                  HapticFeedback.lightImpact();
+                  setState(() => _isEmergency = v);
+                },
               ),
             ],
           ),
@@ -360,9 +432,11 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
       key: const ValueKey('schedule'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Schedule',
+        Text('Service Schedule',
             style: GoogleFonts.sora(
-                fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink)),
         const SizedBox(height: 8),
         Text('When do you need the service?',
             style: GoogleFonts.inter(fontSize: 14, color: AppColors.inkLight)),
@@ -392,6 +466,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () async {
+            HapticFeedback.lightImpact();
             final date = await showDatePicker(
               context: context,
               initialDate: _selectedDate,
@@ -427,6 +502,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () async {
+            HapticFeedback.lightImpact();
             final time = await showTimePicker(
               context: context,
               initialTime: _selectedTime,
@@ -445,7 +521,9 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
       children: [
         Text('Service Details',
             style: GoogleFonts.sora(
-                fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink)),
         const SizedBox(height: 8),
         Text('Tell us what you need',
             style: GoogleFonts.inter(fontSize: 14, color: AppColors.inkLight)),
@@ -466,6 +544,7 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
                 label: Text(cat['label']!),
                 selected: isSelected,
                 onSelected: (v) {
+                  HapticFeedback.lightImpact();
                   setState(() => _selectedService = v ? cat['id'] : null);
                 },
               );
@@ -479,11 +558,9 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
           maxLines: 4,
           onChanged: (v) => _serviceDetails = v,
           decoration: InputDecoration(
-            hintText: 'Describe the work needed (e.g., "Fix leaking tap in kitchen bathroom")',
+            hintText: 'Describe the issue or requirements in detail...',
             alignLabelWithHint: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
       ],
@@ -491,8 +568,11 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
   }
 
   Widget _buildConfirmStep() {
-    final priceRange = MockDataService.getEstimatedPrice(
-        _selectedService ?? 'electrician');
+    final basePrice = _getBaseServicePrice();
+    final platformFee = basePrice * 0.05; // 5% cooperative ops
+    final welfareFund = basePrice * 0.05; // 5% worker social security fund
+    final totalPayable = basePrice + platformFee + welfareFund;
+    final privateAggregatorDeduction = totalPayable * 0.28; // Private gig apps take ~28%
 
     return Column(
       key: const ValueKey('confirm'),
@@ -500,69 +580,101 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
       children: [
         Text('Confirm Booking',
             style: GoogleFonts.sora(
-                fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink)),
         const SizedBox(height: 20),
 
-        // Summary card
+        // Summary Card with Transparent Cooperative Math
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Column(
             children: [
-              _buildSummaryRow('Service',
+              _buildSummaryRow('Trade Service',
                   _capitalizeFirst(_selectedService ?? 'Service')),
               const Divider(height: 20),
               if (_workerName != null) ...[
-                _buildSummaryRow('Worker', _workerName!),
+                _buildSummaryRow('Assigned Partner', _workerName!),
                 const Divider(height: 20),
               ],
-              _buildSummaryRow('Address', _address),
+              _buildSummaryRow('Location', _address),
               const Divider(height: 20),
-              _buildSummaryRow('Date',
-                  '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
-              const Divider(height: 20),
-              _buildSummaryRow('Time', _selectedTime.format(context)),
-              if (_isEmergency) ...[
-                const Divider(height: 20),
-                _buildSummaryRow('Type', 'Emergency (Priority)'),
-              ],
+              _buildSummaryRow('Schedule',
+                  '${_selectedDate.day}/${_selectedDate.month} at ${_selectedTime.format(context)}'),
               if (_serviceDetails.trim().isNotEmpty) ...[
                 const Divider(height: 20),
-                _buildSummaryRow('Notes', _serviceDetails.trim()),
+                _buildSummaryRow('Customer Notes', _serviceDetails.trim(),
+                    isSubtle: true),
               ],
               const Divider(height: 20),
-              _buildSummaryRow('Estimated Price', priceRange,
+
+              // Detailed Fair Pricing Math
+              _buildSummaryRow(
+                  'Base Service Amount', '₹${basePrice.toStringAsFixed(0)}'),
+              const SizedBox(height: 6),
+              _buildSummaryRow('Platform Ops (5% Fair Cap)',
+                  '₹${platformFee.toStringAsFixed(1)}',
+                  isSubtle: true),
+              const SizedBox(height: 6),
+              _buildSummaryRow('Social Security Fund (5%)',
+                  '₹${welfareFund.toStringAsFixed(1)}',
+                  isSubtle: true, highlightColor: AppColors.teal),
+              const Divider(height: 20),
+              _buildSummaryRow('Total Transparent Fare',
+                  '₹${totalPayable.toStringAsFixed(0)}',
                   isHighlighted: true),
             ],
           ),
         ),
         const SizedBox(height: 16),
 
-        // Fair pricing note
+        // Cooperative Fair Take-Home Comparison Box
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppColors.teal.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.teal.withValues(alpha: 0.2)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.verified_outlined,
-                  size: 18, color: AppColors.teal),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Only 5–10% platform fee — no hidden charges. '
-                  'Workers keep more of what they earn.',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: AppColors.teal,
-                    height: 1.4,
+              Row(
+                children: [
+                  const Icon(Icons.volunteer_activism_rounded,
+                      size: 20, color: AppColors.teal),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Cooperative Fair Wage Guarantee',
+                    style: GoogleFonts.sora(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.teal,
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '• Worker receives 90% direct take-home (₹${basePrice.toStringAsFixed(0)}).\n'
+                '• 5% (₹${welfareFund.toStringAsFixed(1)}) is credited directly to their healthcare fund.\n'
+                '• Worker earns +₹${privateAggregatorDeduction.toStringAsFixed(0)} more than on private gig platforms.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: AppColors.inkLight,
+                  height: 1.5,
                 ),
               ),
             ],
@@ -572,23 +684,35 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value,
-      {bool isHighlighted = false}) {
+  Widget _buildSummaryRow(
+    String label,
+    String value, {
+    bool isHighlighted = false,
+    bool isSubtle = false,
+    Color? highlightColor,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: GoogleFonts.inter(fontSize: 13, color: AppColors.inkLight)),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: isSubtle ? 12 : 13,
+            color: isSubtle ? AppColors.inkMuted : AppColors.inkLight,
+          ),
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.end,
             style: GoogleFonts.inter(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: isHighlighted ? AppColors.teal : AppColors.ink,
+              fontSize: isHighlighted ? 17 : (isSubtle ? 12 : 14),
+              fontWeight:
+                  isHighlighted || !isSubtle ? FontWeight.w700 : FontWeight.w500,
+              color: highlightColor ??
+                  (isHighlighted ? AppColors.teal : AppColors.ink),
             ),
           ),
         ),
@@ -598,47 +722,55 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
 
   Widget _buildBottomBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.surface,
+        border: const Border(top: BorderSide(color: AppColors.border)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
-            offset: const Offset(0, -4),
+            offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
+      child: SafeArea(
+        child: Row(
+          children: [
+            if (_currentStep > 0) ...[
+              Expanded(
+                flex: 1,
+                child: PrimaryButton(
+                  label: 'Back',
+                  isOutlined: true,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _currentStep--);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
             Expanded(
+              flex: 2,
               child: PrimaryButton(
-                label: 'Back',
-                isOutlined: true,
-                icon: Icons.arrow_back_rounded,
-                onPressed: () => setState(() => _currentStep--),
+                label: _currentStep == 3 ? 'Confirm & Book' : 'Continue',
+                isLoading: _isBooking,
+                icon: _currentStep == 3
+                    ? Icons.check_circle_rounded
+                    : Icons.arrow_forward_rounded,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  if (_currentStep < 3) {
+                    setState(() => _currentStep++);
+                  } else {
+                    _confirmBooking();
+                  }
+                },
               ),
             ),
-          if (_currentStep > 0) const SizedBox(width: 12),
-          Expanded(
-            flex: _currentStep == 0 ? 1 : 1,
-            child: PrimaryButton(
-              label: _currentStep == 3 ? 'Confirm Booking' : 'Continue',
-              isLoading: _isBooking,
-              icon: _currentStep == 3
-                  ? Icons.check_circle_rounded
-                  : Icons.arrow_forward_rounded,
-              onPressed: () {
-                if (_currentStep < 3) {
-                  setState(() => _currentStep++);
-                } else {
-                  _confirmBooking();
-                }
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
