@@ -245,4 +245,20 @@ class MockDataService {
     if (prices == null) return '₹200 – ₹800';
     return '₹${prices['min']} – ₹${prices['max']}';
   }
+
+  /// Simulated worker reviews
+  static List<Map<String, dynamic>> getMockReviews() => [
+        {
+          'customer_name': 'Amit Verma',
+          'rating': 5,
+          'comment': 'Prompt arrival and diagnosed the circuit issue immediately. Transparent cooperative pricing.',
+          'time': '2 days ago',
+        },
+        {
+          'customer_name': 'Pooja Reddy',
+          'rating': 5,
+          'comment': 'Very polite and thorough with the repairs. Great to see social security contribution included.',
+          'time': '1 week ago',
+        },
+      ];
 }

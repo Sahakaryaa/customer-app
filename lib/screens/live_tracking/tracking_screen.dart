@@ -12,6 +12,7 @@ import '../../widgets/primary_button.dart';
 import '../../models/booking.dart';
 import '../../services/location_service.dart';
 import '../../widgets/cooperative_badge.dart';
+import '../../widgets/glass_card.dart';
 
 /// Professional 60 FPS live tracking screen with continuous coordinate interpolation,
 /// rotating vehicle heading, animated radar beacon pulses, and real-time telemetry card.
@@ -381,25 +382,13 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                   ],
                 ),
 
-                // Floating Live Telemetry Chip (ETA + Distance Progress)
+                // Floating Live Telemetry GlassCard (ETA + Distance Progress)
                 Positioned(
                   top: 14,
                   left: 16,
                   right: 16,
-                  child: Container(
+                  child: GlassCard(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface.withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.teal.withValues(alpha: 0.2)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
                     child: Row(
                       children: [
                         Container(

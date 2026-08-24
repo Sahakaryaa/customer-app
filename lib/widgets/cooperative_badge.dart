@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_colors.dart';
 
 /// The signature "Cooperative Verified" badge — teal pill with gold checkmark.
-/// Features an elastic scale-in entrance animation respecting reduced-motion settings.
-class CooperativeBadge extends StatefulWidget {
+/// Features an elastic scale-in entrance animation and subtle gold shimmer respecting reduced motion.
+class CooperativeBadge extends StatelessWidget {
   final bool compact;
   final bool isCompact;
   final bool animate;
@@ -20,44 +21,11 @@ class CooperativeBadge extends StatefulWidget {
   bool get effectiveCompact => compact || isCompact;
 
   @override
-  State<CooperativeBadge> createState() => _CooperativeBadgeState();
-}
-
-class _CooperativeBadgeState extends State<CooperativeBadge>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 350),
-    );
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.elasticOut,
-      ),
-    );
-    if (widget.animate) {
-      _controller.forward();
-    } else {
-      _controller.value = 1.0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    final isSmall = widget.effectiveCompact;
+    final disableAnimations =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final isSmall = effectiveCompact;
+
     final badgeContent = Container(
       padding: EdgeInsets.symmetric(
         horizontal: isSmall ? 8 : 10,
@@ -68,8 +36,8 @@ class _CooperativeBadgeState extends State<CooperativeBadge>
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.teal.withValues(alpha: 0.3),
-            blurRadius: 6,
+            color: AppColors.teal.withValues(alpha: 0.35),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
@@ -79,16 +47,16 @@ class _CooperativeBadgeState extends State<CooperativeBadge>
         children: [
           Icon(
             Icons.verified_rounded,
-            size: isSmall ? 12 : 14,
+            size: isSmall ? 12 : 15,
             color: AppColors.gold,
           ),
-          SizedBox(width: isSmall ? 3 : 5),
+          SizedBox(width: isSmall ? 4 : 6),
           Text(
-            widget.federationName ?? (isSmall ? 'Verified' : 'Cooperative Verified'),
+            federationName ?? (isSmall ? 'Verified' : 'Cooperative Verified'),
             style: TextStyle(
               color: Colors.white,
               fontSize: isSmall ? 9 : 11,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
             ),
           ),
@@ -96,13 +64,23 @@ class _CooperativeBadgeState extends State<CooperativeBadge>
       ),
     );
 
-    if (disableAnimations || !widget.animate) {
+    if (disableAnimations || !animate) {
       return badgeContent;
     }
 
-    return ScaleTransition(
-      scale: _scaleAnimation,
-      child: badgeContent,
-    );
+    return badgeContent
+        .animate()
+        .fadeIn(duration: 350.ms)
+        .scale(
+          begin: const Offset(0.85, 0.85),
+          end: const Offset(1.0, 1.0),
+          curve: Curves.elasticOut,
+          duration: 600.ms,
+        )
+        .then(delay: 200.ms)
+        .shimmer(
+          duration: 1200.ms,
+          color: AppColors.gold.withValues(alpha: 0.4),
+        );
   }
 }

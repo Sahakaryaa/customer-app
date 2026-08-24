@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/nearby_workers_provider.dart';
@@ -10,8 +12,8 @@ import '../../widgets/service_category_tile.dart';
 import '../../services/location_service.dart';
 import '../../widgets/cooperative_badge.dart';
 
-/// Main home screen — service category grid, interactive search, live location cluster selector,
-/// pulsing emergency CTA, and recent booking history cards.
+/// Main home screen — Bento Grid layout, interactive search, live location cluster selector,
+/// pulsing emergency CTA, and cooperative trust stats per 08-flutter-immersive-ui-skill.md §2.2.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -46,6 +48,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onSearch(String query) {
+    HapticFeedback.lightImpact();
     final trimmed = query.trim();
     if (trimmed.isNotEmpty) {
       ref.read(selectedServiceProvider.notifier).state = null;
@@ -90,7 +93,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     children: [
                       // Location Selector Bar
                       GestureDetector(
-                        onTap: () => LocationService.showLocationPickerModal(context, ref),
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          LocationService.showLocationPickerModal(context, ref);
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 7),
@@ -134,7 +140,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Top bar with profile (no subpixel overflow)
+                      // Top bar with profile
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -167,7 +173,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           ),
                           const SizedBox(width: 12),
                           GestureDetector(
-                            onTap: () => context.push('/profile'),
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              context.push('/profile');
+                            },
                             child: Container(
                               width: 44,
                               height: 44,
@@ -192,11 +201,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             horizontal: 14, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 12,
+                              blurRadius: 14,
                               offset: const Offset(0, 4),
                             ),
                           ],
@@ -263,10 +272,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ),
 
-          // Emergency booking banner with breathing pulse animation
+          // Bento Section: Large Hero Emergency Dispatch Card
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
               child: AnimatedBuilder(
                 animation: _pulseAnimation,
                 builder: (context, child) {
@@ -277,33 +286,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 },
                 child: GestureDetector(
                   onTap: () {
+                    HapticFeedback.mediumImpact();
                     ref.read(selectedServiceProvider.notifier).state = null;
                     ref.read(workerSearchQueryProvider.notifier).state = null;
                     context.push('/workers?emergency=true');
                   },
                   child: Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       gradient: AppColors.orangeGradient,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.orange.withValues(alpha: 0.35),
-                          blurRadius: 14,
-                          offset: const Offset(0, 5),
+                          color: AppColors.orange.withValues(alpha: 0.38),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(10),
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.white.withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                           child: const Icon(Icons.flash_on_rounded,
-                              color: Colors.white, size: 26),
+                              color: Colors.white, size: 28),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -311,19 +321,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Emergency Booking',
+                                'Emergency Fast-Track Dispatch',
                                 style: GoogleFonts.sora(
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 3),
                               Text(
-                                'Nearest verified worker dispatched in ~5 mins',
+                                'Nearest verified trade partner arrives in ~5 mins',
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
-                                  color: Colors.white.withValues(alpha: 0.9),
+                                  color: Colors.white.withValues(alpha: 0.92),
                                 ),
                               ),
                             ],
@@ -336,10 +346,131 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                 ),
               ),
-            ),
+            ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0),
           ),
 
-          // Section title
+          // Bento Medium Supporting Cells (2 Columns)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  // Left Cell: Nearby Workers
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        context.push('/workers');
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: AppColors.border),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.03),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(7),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.teal.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.people_alt_rounded,
+                                      color: AppColors.teal, size: 18),
+                                ),
+                                const CooperativeBadge(isCompact: true),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '15+ Verified',
+                              style: GoogleFonts.sora(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.ink,
+                              ),
+                            ),
+                            Text(
+                              'Active in your zone',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: AppColors.inkLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Right Cell: 5% Welfare Fund Trust
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.border),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: AppColors.gold.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.volunteer_activism_rounded,
+                                color: Color(0xFFB45309), size: 18),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            '5% Welfare Pool',
+                            style: GoogleFonts.sora(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          Text(
+                            'Worker medical aid',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: AppColors.inkLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
+          ),
+
+          // Section title: Services
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
@@ -347,10 +478,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Services',
+                    'Trade Services',
                     style: GoogleFonts.sora(
                       fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                       color: AppColors.ink,
                     ),
                   ),
@@ -385,6 +516,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     icon: ServiceCategoryTile.getIconForService(
                         category['id']!),
                     onTap: () {
+                      HapticFeedback.lightImpact();
                       ref.read(selectedServiceProvider.notifier).state =
                           category['id'];
                       ref.read(workerSearchQueryProvider.notifier).state = null;
@@ -405,7 +537,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.teal.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(
                     color: AppColors.teal.withValues(alpha: 0.2),
                   ),
@@ -447,7 +579,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'NCCT affiliated • 1% of every job funds partner healthcare & pensions',
+                            'NCCT affiliated • 100% of welfare levies fund partner healthcare & pensions',
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               color: AppColors.inkLight,
@@ -478,7 +610,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     ),
                   ),
                   TextButton(
-                    onPressed: () => context.push('/history'),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      context.push('/history');
+                    },
                     child: Text(
                       'View All',
                       style: GoogleFonts.inter(
@@ -527,62 +662,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  ServiceCategoryTile.getIconForService(
-                                      booking.serviceType),
-                                  size: 18,
-                                  color: AppColors.teal,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  booking.serviceType[0].toUpperCase() +
-                                      booking.serviceType.substring(1),
-                                  style: GoogleFonts.sora(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Text(
-                          booking.workerName ?? 'Assigned Partner',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: AppColors.inkLight,
-                          ),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
                             Text(
-                              '₹${booking.price.toStringAsFixed(0)}',
+                              booking.serviceType.toUpperCase(),
                               style: GoogleFonts.inter(
-                                fontSize: 16,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.teal,
                               ),
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                  horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
+                                color: AppColors.teal.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                booking.status.name,
-                                style: GoogleFonts.inter(
-                                  fontSize: 11,
+                                booking.status.name.toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: AppColors.success,
+                                  color: AppColors.teal,
                                 ),
                               ),
                             ),
                           ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              booking.workerName ?? 'Assigned Partner',
+                              style: GoogleFonts.sora(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.ink,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              '₹${booking.price.toStringAsFixed(0)} • Delhi Central',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: AppColors.inkLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          'Tap to view tracking',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.orange,
+                          ),
                         ),
                       ],
                     ),
@@ -592,7 +726,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ),
 
-          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 40),
+          ),
         ],
       ),
     );

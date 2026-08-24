@@ -39,6 +39,8 @@ dependencies:
   flutter_rating_bar: ^4.0.1
   shimmer: ^3.0.0
   device_preview: ^1.2.0
+  # Animation & Motion
+  flutter_animate: ^4.5.2
 
   # Routing
   go_router: ^15.1.2
