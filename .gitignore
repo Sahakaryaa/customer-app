@@ -1,0 +1,96 @@
+# ==============================================================================
+# Customer App (Flutter / Dart) .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Flutter / Dart / Pub build artifacts & caches
+# ------------------------------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+**/doc/api/
+.widget_preview/
+
+# ------------------------------------------------------------------------------
+# Android build artifacts & configuration
+# ------------------------------------------------------------------------------
+android/.gradle/
+android/app/build/
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/captures/
+android/local.properties
+android/key.properties
+android/*.keystore
+android/*.jks
+*.apk
+*.aab
+
+# ------------------------------------------------------------------------------
+# iOS / macOS build artifacts
+# ------------------------------------------------------------------------------
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Pods/
+ios/.symlinks/
+ios/profile
+ios/release
+**/ios/Flutter/.last_build_id
+macos/Flutter/GeneratedPluginRegistrant.swift
+macos/Pods/
+
+# ------------------------------------------------------------------------------
+# Web / Windows / Linux build artifacts
+# ------------------------------------------------------------------------------
+web/build/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# ------------------------------------------------------------------------------
+# Obfuscation & Symbolication
+# ------------------------------------------------------------------------------
+app.*.symbols
+app.*.map.json
+
+# ------------------------------------------------------------------------------
+# Environment variables & Sensitive keys
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------------------------
+# IDE / Editor specific files
+# ------------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+*.swp
+*.swo
+
+# ------------------------------------------------------------------------------
+# OS specific files
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
