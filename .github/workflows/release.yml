@@ -38,10 +38,9 @@ jobs:
       - name: Set up Flutter Environment
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.0'
           channel: 'stable'
           cache: true
-          cache-key: 'flutter-:os:-:channel:-:version:-:arch:'
+
 
       - name: Verify Flutter Installation
         run: flutter --version
