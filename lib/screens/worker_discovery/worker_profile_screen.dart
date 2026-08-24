@@ -335,7 +335,7 @@ class WorkerProfileScreen extends ConsumerWidget {
           RatingBarIndicator(
             rating: rating.toDouble(),
             itemSize: 14,
-            itemBuilder: (_, _) =>
+            itemBuilder: (_, __) =>
                 const Icon(Icons.star_rounded, color: AppColors.gold),
           ),
           const SizedBox(height: 6),

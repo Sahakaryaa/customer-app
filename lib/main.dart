@@ -49,7 +49,6 @@ class SahaKaryaCustomerApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       routerConfig: router,
-      useInheritedMediaQuery: kIsWeb,
       locale: kIsWeb ? DevicePreview.locale(context) : null,
       builder: kIsWeb ? DevicePreview.appBuilder : null,
       scrollBehavior: const AppScrollBehavior(),

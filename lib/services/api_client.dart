@@ -102,7 +102,7 @@ class ApiClient {
     final response = await _dio.get('/workers/nearby', queryParameters: {
       'lat': lat,
       'lng': lng,
-      'service_type': ?serviceType,
+      if (serviceType != null) 'service_type': serviceType,
     });
     final list = response.data as List;
     return list.map((e) => Worker.fromJson(e as Map<String, dynamic>)).toList();
@@ -147,7 +147,7 @@ class ApiClient {
   }) async {
     await _dio.post('/bookings/$bookingId/rate', data: {
       'rating': rating,
-      'comment': ?comment,
+      if (comment != null) 'comment': comment,
     });
   }
 
