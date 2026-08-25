@@ -1,13 +1,18 @@
+import 'package:latlong2/latlong.dart';
 import '../models/worker.dart';
 import '../models/booking.dart';
+import '../models/location_data.dart';
+import 'booking_socket.dart' show haversineKm;
 
-/// Mock data provider for development without a backend.
-/// Demo data is centered on Delhi NCR — consistent with the cooperative
-/// location clusters in models/location_data.dart.
+/// Mock data provider for development and seamless demo mode.
+/// Generates realistic cooperative workers around the user's active GPS/mock location.
 class MockDataService {
-  /// Delhi NCR demo center (Connaught Place area) per DESIGN_SPEC.
-  static const double _baseLat = 28.61;
-  static const double _baseLng = 77.21;
+  /// Default center if none provided (Bengaluru Indiranagar).
+  static const double defaultLat = 12.9716;
+  static const double defaultLng = 77.6412;
+
+  /// In-memory storage for bookings created during the active demo session.
+  static final List<Booking> inMemoryBookings = [];
 
   /// Service categories available on the platform.
   static const List<Map<String, String>> serviceCategories = [
@@ -21,210 +26,260 @@ class MockDataService {
     {'id': 'gardener', 'label': 'Gardener', 'icon': 'grass'},
   ];
 
-  /// Simulated nearby workers around the Delhi NCR demo center.
-  static List<Worker> getMockWorkers({String? serviceType}) {
-    final allWorkers = [
-      Worker(
+  /// Find nearest cooperative hub name for contextual branding.
+  static String _resolveFederationName(double lat, double lng) {
+    CooperativeLocation nearest = CooperativeLocation.clusters.first;
+    double bestDist = double.infinity;
+    for (final c in CooperativeLocation.clusters) {
+      final dLat = lat - c.coordinates.latitude;
+      final dLng = lng - c.coordinates.longitude;
+      final d = dLat * dLat + dLng * dLng;
+      if (d < bestDist) {
+        bestDist = d;
+        nearest = c;
+      }
+    }
+    return nearest.federationHub;
+  }
+
+  /// Simulated nearby workers around the user's active coordinates.
+  static List<Worker> getMockWorkers({String? serviceType, LatLng? centerLocation}) {
+    final baseLat = centerLocation?.latitude ?? defaultLat;
+    final baseLng = centerLocation?.longitude ?? defaultLng;
+    final fedName = _resolveFederationName(baseLat, baseLng);
+
+    // Realistic offsets producing 400m to 4.5km distances around the active center
+    final workerTemplates = [
+      (
         id: 'w1',
-        userId: 'u1',
         name: 'Ramesh Kumar',
-        federationName: 'Delhi Central Cooperative Hub',
         skills: ['electrician', 'plumber'],
-        serviceType: 'electrician',
-        certificationStatus: 'verified',
-        latitude: _baseLat + 0.005,
-        longitude: _baseLng + 0.003,
-        ratingAvg: 4.8,
-        totalRatings: 124,
-        isOnline: true,
-        distanceMeters: 850,
+        primary: 'electrician',
+        status: 'verified',
+        dLat: 0.0045,
+        dLng: 0.0032,
+        rating: 4.8,
+        total: 124,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w2',
-        userId: 'u2',
         name: 'Sunita Devi',
-        federationName: 'South Delhi Labour Cooperative Federation',
         skills: ['cleaner', 'caregiver'],
-        serviceType: 'cleaner',
-        certificationStatus: 'verified',
-        latitude: _baseLat - 0.002,
-        longitude: _baseLng + 0.006,
-        ratingAvg: 4.9,
-        totalRatings: 89,
-        isOnline: true,
-        distanceMeters: 1200,
+        primary: 'cleaner',
+        status: 'verified',
+        dLat: -0.0035,
+        dLng: 0.0058,
+        rating: 4.9,
+        total: 89,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w3',
-        userId: 'u3',
         name: 'Venkat Rao',
-        federationName: 'West Delhi Artisans Guild',
         skills: ['carpenter', 'painter'],
-        serviceType: 'carpenter',
-        certificationStatus: 'verified',
-        latitude: _baseLat + 0.008,
-        longitude: _baseLng - 0.004,
-        ratingAvg: 4.6,
-        totalRatings: 67,
-        isOnline: true,
-        distanceMeters: 1800,
+        primary: 'carpenter',
+        status: 'verified',
+        dLat: 0.0072,
+        dLng: -0.0041,
+        rating: 4.6,
+        total: 67,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w4',
-        userId: 'u4',
         name: 'Lakshmi Narayan',
-        federationName: 'Delhi Central Cooperative Hub',
         skills: ['electrician'],
-        serviceType: 'electrician',
-        certificationStatus: 'verified',
-        latitude: _baseLat - 0.006,
-        longitude: _baseLng - 0.002,
-        ratingAvg: 4.7,
-        totalRatings: 201,
-        isOnline: true,
-        distanceMeters: 2100,
+        primary: 'electrician',
+        status: 'verified',
+        dLat: -0.0061,
+        dLng: -0.0028,
+        rating: 4.7,
+        total: 201,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w5',
-        userId: 'u5',
         name: 'Meera Bai',
-        federationName: 'North NCR Workers Society',
         skills: ['cleaner'],
-        serviceType: 'cleaner',
-        certificationStatus: 'verified',
-        latitude: _baseLat + 0.003,
-        longitude: _baseLng + 0.009,
-        ratingAvg: 4.5,
-        totalRatings: 45,
-        isOnline: true,
-        distanceMeters: 2800,
+        primary: 'cleaner',
+        status: 'verified',
+        dLat: 0.0028,
+        dLng: 0.0084,
+        rating: 4.5,
+        total: 45,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w6',
-        userId: 'u6',
         name: 'Ajay Singh',
-        federationName: 'West Delhi Artisans Guild',
         skills: ['plumber', 'carpenter'],
-        serviceType: 'plumber',
-        certificationStatus: 'verified',
-        latitude: _baseLat - 0.009,
-        longitude: _baseLng + 0.001,
-        ratingAvg: 4.3,
-        totalRatings: 33,
-        isOnline: true,
-        distanceMeters: 3200,
+        primary: 'plumber',
+        status: 'verified',
+        dLat: -0.0085,
+        dLng: 0.0019,
+        rating: 4.3,
+        total: 33,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w7',
-        userId: 'u7',
         name: 'Priya Sharma',
-        federationName: 'South Delhi Labour Cooperative Federation',
         skills: ['caregiver'],
-        serviceType: 'caregiver',
-        certificationStatus: 'verified',
-        latitude: _baseLat + 0.012,
-        longitude: _baseLng - 0.007,
-        ratingAvg: 4.9,
-        totalRatings: 156,
-        isOnline: true,
-        distanceMeters: 3800,
+        primary: 'caregiver',
+        status: 'verified',
+        dLat: 0.0112,
+        dLng: -0.0065,
+        rating: 4.9,
+        total: 156,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w8',
-        userId: 'u8',
         name: 'Ganesh Reddy',
-        federationName: 'Noida Industrial Cooperative Federation',
         skills: ['driver'],
-        serviceType: 'driver',
-        certificationStatus: 'verified',
-        latitude: _baseLat - 0.004,
-        longitude: _baseLng + 0.012,
-        ratingAvg: 4.4,
-        totalRatings: 78,
-        isOnline: true,
-        distanceMeters: 4100,
+        primary: 'driver',
+        status: 'verified',
+        dLat: -0.0042,
+        dLng: 0.0118,
+        rating: 4.4,
+        total: 78,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w9',
-        userId: 'u9',
         name: 'Ravi Teja',
-        federationName: 'Delhi Central Cooperative Hub',
         skills: ['painter', 'gardener'],
-        serviceType: 'painter',
-        certificationStatus: 'verified',
-        latitude: _baseLat + 0.015,
-        longitude: _baseLng + 0.008,
-        ratingAvg: 4.2,
-        totalRatings: 29,
-        isOnline: true,
-        distanceMeters: 5500,
+        primary: 'painter',
+        status: 'verified',
+        dLat: 0.0135,
+        dLng: 0.0075,
+        rating: 4.2,
+        total: 29,
+        online: true,
       ),
-      Worker(
+      (
         id: 'w10',
-        userId: 'u10',
         name: 'Kavitha M',
-        federationName: 'Gurugram Labour Welfare Society',
         skills: ['gardener', 'cleaner'],
-        serviceType: 'gardener',
-        certificationStatus: 'pending',
-        latitude: _baseLat - 0.011,
-        longitude: _baseLng - 0.009,
-        ratingAvg: 0.0,
-        totalRatings: 0,
-        isOnline: true,
-        distanceMeters: 6200,
+        primary: 'gardener',
+        status: 'verified',
+        dLat: -0.0102,
+        dLng: -0.0085,
+        rating: 4.6,
+        total: 22,
+        online: true,
       ),
     ];
 
-    if (serviceType != null) {
+    final allWorkers = workerTemplates.map((t) {
+      final wLat = baseLat + t.dLat;
+      final wLng = baseLng + t.dLng;
+      final distKm = haversineKm(baseLat, baseLng, wLat, wLng);
+      final distMeters = distKm * 1000;
+
+      return Worker(
+        id: t.id,
+        userId: 'u_${t.id}',
+        name: t.name,
+        federationName: fedName,
+        skills: t.skills,
+        serviceType: t.primary,
+        certificationStatus: t.status,
+        latitude: wLat,
+        longitude: wLng,
+        ratingAvg: t.rating,
+        totalRatings: t.total,
+        isOnline: t.online,
+        distanceMeters: distMeters,
+      );
+    }).toList();
+
+    if (serviceType != null && serviceType.isNotEmpty) {
       return allWorkers.where((w) => w.skills.contains(serviceType)).toList();
     }
     return allWorkers;
   }
 
-  /// Simulated booking history for the demo user (contract statuses).
-  static List<Booking> getMockBookingHistory() {
-    return [
+  /// Simulated booking history for the demo user including any created in-session.
+  static List<Booking> getMockBookingHistory({LatLng? userLocation, String? areaName}) {
+    final baseLat = userLocation?.latitude ?? defaultLat;
+    final baseLng = userLocation?.longitude ?? defaultLng;
+    final area = areaName ?? 'Nearby Cooperative Hub';
+
+    final defaultPastBookings = [
       Booking(
-        id: 'b1',
+        id: 'b_sample_1',
         customerId: 'demo_customer',
         workerId: 'w1',
         workerName: 'Ramesh Kumar',
         serviceType: 'electrician',
         status: BookingStatus.completed,
-        latitude: _baseLat,
-        longitude: _baseLng,
-        address: 'Connaught Place, New Delhi',
-        price: 450,
+        latitude: baseLat + 0.002,
+        longitude: baseLng + 0.001,
+        address: '$area, Main Street',
+        price: 450.0,
         createdAt: DateTime.now().subtract(const Duration(days: 3)),
       ),
       Booking(
-        id: 'b2',
+        id: 'b_sample_2',
         customerId: 'demo_customer',
         workerId: 'w2',
         workerName: 'Sunita Devi',
         serviceType: 'cleaner',
         status: BookingStatus.completed,
-        latitude: _baseLat,
-        longitude: _baseLng,
-        address: 'Hauz Khas, South Delhi',
-        price: 350,
+        latitude: baseLat - 0.001,
+        longitude: baseLng + 0.002,
+        address: '$area, Sector Block',
+        price: 350.0,
         createdAt: DateTime.now().subtract(const Duration(days: 7)),
       ),
       Booking(
-        id: 'b3',
+        id: 'b_sample_3',
         customerId: 'demo_customer',
         workerId: 'w3',
         workerName: 'Venkat Rao',
         serviceType: 'carpenter',
         status: BookingStatus.completed,
-        latitude: _baseLat,
-        longitude: _baseLng,
-        address: 'Karol Bagh, West Delhi',
-        price: 800,
+        latitude: baseLat + 0.004,
+        longitude: baseLng - 0.002,
+        address: '$area, Artisans Hub',
+        price: 800.0,
         createdAt: DateTime.now().subtract(const Duration(days: 14)),
       ),
     ];
+
+    // Newly created bookings appear first
+    return [...inMemoryBookings, ...defaultPastBookings];
+  }
+
+  /// Single mock booking lookup by id
+  static Booking getMockBooking(String id, {LatLng? userLocation}) {
+    // Check in-memory first
+    final inMemory = inMemoryBookings.where((b) => b.id == id);
+    if (inMemory.isNotEmpty) return inMemory.first;
+
+    final history = getMockBookingHistory(userLocation: userLocation);
+    for (final b in history) {
+      if (b.id == id) return b;
+    }
+
+    // Default fallback booking
+    final lat = userLocation?.latitude ?? defaultLat;
+    final lng = userLocation?.longitude ?? defaultLng;
+    return Booking(
+      id: id,
+      customerId: 'demo_customer',
+      workerId: 'w1',
+      workerName: 'Ramesh Kumar',
+      serviceType: 'electrician',
+      status: BookingStatus.accepted,
+      latitude: lat,
+      longitude: lng,
+      address: 'Current Service Address',
+      price: 450.0,
+      createdAt: DateTime.now(),
+    );
   }
 
   /// Simulated service price ranges.
@@ -281,3 +336,4 @@ class MockDataService {
         },
       ];
 }
+

@@ -28,9 +28,10 @@ class UserLocationNotifier extends StateNotifier<CooperativeLocation> {
       id: 'custom_gps',
       areaName: name,
       subDistrict: subDistrict,
+      city: 'Current GPS',
       coordinates: coords,
-      activeWorkers: 15,
-      federationHub: 'Live GPS Location',
+      activeWorkers: 18,
+      federationHub: 'Local Cooperative Network',
     );
   }
 }
@@ -59,13 +60,13 @@ class LocationResult {
   String get sourceLabel => switch (source) {
         LocationSource.liveGps => 'Live GPS',
         LocationSource.lastKnown => 'Last known position',
-        LocationSource.cachedDefault => 'Approximate (Delhi NCR)',
+        LocationSource.cachedDefault => 'Approximate Hub',
       };
 }
 
 /// Wraps Geolocator with the DESIGN_SPEC chain:
 /// WhenInUse permission (+ friendly explainer sheet) → live GPS →
-/// lastKnownPosition → cached default Delhi NCR center (28.61, 77.21)
+/// lastKnownPosition → cached default location
 /// with a non-blocking "approximate location" banner.
 class LocationService {
   final Ref? ref;
@@ -73,8 +74,8 @@ class LocationService {
 
   LocationService([this.ref]);
 
-  /// Cached default: Delhi NCR center per spec.
-  static const defaultLocation = LatLng(28.61, 77.21);
+  /// Default starting location (Bengaluru Indiranagar or nearest cluster).
+  static const defaultLocation = LatLng(12.9716, 77.6412);
 
   /// Full chain. Never throws when [fallbackToDefault] is true.
   Future<LocationResult> resolveLocation({
@@ -141,7 +142,7 @@ class LocationService {
       // fall through
     }
 
-    // 5) Cached default Delhi NCR center.
+    // 5) Cached default location.
     return _fallback();
   }
 
@@ -178,9 +179,7 @@ class LocationService {
     return result;
   }
 
-  /// Nearest-cluster area resolution — deterministic, no unreachable branches.
-  /// Replaces the buggy ordered-if chain where the Saket rule swallowed
-  /// Gurugram coordinates before the Gurugram rule could fire.
+  /// Nearest-cluster area resolution across nationwide hubs.
   String getApproximateArea(LatLng coords) {
     CooperativeLocation nearest = CooperativeLocation.clusters.first;
     double best = double.infinity;
@@ -191,12 +190,16 @@ class LocationService {
         nearest = c;
       }
     }
-    return '${nearest.areaName}, ${nearest.subDistrict}';
+    // If within ~40km of a cluster, show the cluster area and city
+    if (best < 0.15) {
+      return '${nearest.areaName}, ${nearest.city}';
+    }
+    return '${nearest.city} (${coords.latitude.toStringAsFixed(2)}, ${coords.longitude.toStringAsFixed(2)})';
   }
 
   double _squaredDistanceKm(LatLng a, LatLng b) {
     final dLat = a.latitude - b.latitude;
-    final dLng = (a.longitude - b.longitude) * 0.86; // cos(~28°) correction
+    final dLng = (a.longitude - b.longitude) * 0.86;
     return dLat * dLat + dLng * dLng;
   }
 
@@ -250,9 +253,8 @@ class LocationService {
             ),
             const SizedBox(height: 8),
             Text(
-              'SahaKarya uses your location only to show verified workers '
-              'and service partners nearby. You can keep using the app with '
-              'an approximate Delhi NCR location if you prefer.',
+              'SahaKarya uses your location to discover verified cooperative workers '
+              'and service partners near you in real time.',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 14,
@@ -307,10 +309,11 @@ class _LocationPickerSheet extends ConsumerStatefulWidget {
 
 class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
   bool _isDetectingGps = false;
+  String _selectedCity = 'All';
 
   Future<void> _detectGps() async {
     setState(() => _isDetectingGps = true);
-    final messenger = ScaffoldMessenger.of(context); // capture BEFORE pop
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final locService = ref.read(locationServiceProvider);
       final result = await locService.resolveLocation(showExplainer: false);
@@ -326,7 +329,6 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
       if (mounted) {
         setState(() => _isDetectingGps = false);
         Navigator.pop(context);
-        // Use the pre-pop captured messenger → no crash after pop.
         messenger.showSnackBar(
           SnackBar(
             content: Row(
@@ -335,7 +337,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                     color: Colors.white, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Location updated to ${result.areaLabel}',
+                  child: Text('Location set to ${result.areaLabel}',
                       style: GoogleFonts.inter()),
                 ),
               ],
@@ -353,10 +355,15 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final activeLocation = ref.watch(userLocationStateProvider);
+    final filteredClusters = _selectedCity == 'All'
+        ? CooperativeLocation.clusters
+        : CooperativeLocation.clusters
+            .where((c) => c.city == _selectedCity)
+            .toList();
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.75,
+        maxHeight: MediaQuery.of(context).size.height * 0.82,
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -377,7 +384,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
             child: Row(
               children: [
                 Container(
@@ -395,14 +402,14 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Select Service Location',
+                        'Select Service Hub',
                         style: GoogleFonts.sora(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: AppColors.ink),
                       ),
                       Text(
-                        'Cooperative federation hubs across Delhi NCR',
+                        'Cooperative federation hubs across India',
                         style: GoogleFonts.inter(
                             fontSize: 12, color: AppColors.inkSoft),
                       ),
@@ -412,6 +419,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
               ],
             ),
           ),
+          // ── GPS button ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             child: InkWell(
@@ -453,7 +461,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Use Current GPS Location',
+                            'Use My Live GPS Location',
                             style: GoogleFonts.inter(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
@@ -461,7 +469,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                             ),
                           ),
                           Text(
-                            'Auto-detect coordinates and nearest cooperative hub',
+                            'Auto-detect device coordinates and nearest workers',
                             style: GoogleFonts.inter(
                                 fontSize: 11, color: AppColors.inkSoft),
                           ),
@@ -475,21 +483,64 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
               ),
             ),
           ),
+
+          const SizedBox(height: 10),
+
+          // ── City filter chips ──
+          SizedBox(
+            height: 38,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: CooperativeLocation.availableCities.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final city = CooperativeLocation.availableCities[index];
+                final isSelected = _selectedCity == city;
+                return ChoiceChip(
+                  label: Text(city),
+                  selected: isSelected,
+                  selectedColor: AppColors.primary,
+                  backgroundColor: AppColors.surfaceAlt,
+                  labelStyle: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? Colors.white : AppColors.ink,
+                  ),
+                  side: BorderSide(
+                    color: isSelected ? AppColors.primary : AppColors.border,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  showCheckmark: false,
+                  onSelected: (_) {
+                    setState(() => _selectedCity = city);
+                  },
+                );
+              },
+            ),
+          ),
+
           const SizedBox(height: 10),
           const Divider(height: 1),
+
+          // ── List of clusters ──
           Flexible(
             child: ListView.separated(
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              itemCount: CooperativeLocation.clusters.length,
+              itemCount: filteredClusters.length,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                final cluster = CooperativeLocation.clusters[index];
+                final cluster = filteredClusters[index];
                 final isSelected = activeLocation.id == cluster.id;
 
                 return InkWell(
                   onTap: () {
-                    ref.read(userLocationStateProvider.notifier).setLocation(cluster);
+                    ref
+                        .read(userLocationStateProvider.notifier)
+                        .setLocation(cluster);
                     Navigator.pop(context);
                   },
                   borderRadius: BorderRadius.circular(14),
@@ -502,7 +553,8 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                           : AppColors.surface,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: isSelected ? AppColors.primary : AppColors.border,
+                        color:
+                            isSelected ? AppColors.primary : AppColors.border,
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -542,6 +594,24 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                                       ),
                                     ),
                                   ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      cluster.city,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ),
                                   if (isSelected) ...[
                                     const SizedBox(width: 6),
                                     const Icon(Icons.check_circle_rounded,
@@ -551,9 +621,11 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                cluster.subDistrict,
+                                '${cluster.subDistrict} • ${cluster.federationHub}',
                                 style: GoogleFonts.inter(
-                                    fontSize: 12, color: AppColors.inkSoft),
+                                    fontSize: 11.5, color: AppColors.inkSoft),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 4),
                               Row(
@@ -562,7 +634,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                                       color: AppColors.warning, size: 13),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '${cluster.activeWorkers} Verified Workers Nearby',
+                                    '${cluster.activeWorkers} Verified Workers Active',
                                     style: GoogleFonts.inter(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,

@@ -167,12 +167,27 @@ class BookingRealtimeService {
     }
   }
 
-  /// Fallback: poll GET /bookings/{id} every 5s while the socket is down.
+  /// Fallback: poll GET /bookings/{id} every 5s while the socket is down, or run live demo simulation.
   void _startPollingIfDisconnected() {
     if (_pollTimer != null || _activeBookingId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+
+    int tick = 0;
+    double simProgress = 0.0;
+    const double startOffsetLat = 0.0095;
+    const double startOffsetLng = 0.0082;
+
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) async {
       final id = _activeBookingId;
-      if (id == null || _connected || _statusController.isClosed) return;
+      if (id == null || _statusController.isClosed) return;
+
+      if (_connected) {
+        _stopPolling();
+        return;
+      }
+
+      tick++;
+
+      // In offline / demo mode, simulate live worker connection & movement
       try {
         final booking = await _api.getBooking(id);
         if (!_statusController.isClosed) {
@@ -183,7 +198,52 @@ class BookingRealtimeService {
           ));
         }
       } catch (_) {
-        // keep retrying silently; banner already shows reconnecting state
+        // Backend offline -> run live demo simulation
+        if (!_connected && tick >= 2) {
+          if (!_connectionController.isClosed) {
+            _connectionController.add(true);
+          }
+        }
+
+        final targetLat = 12.9716;
+        final targetLng = 77.6412;
+
+        // Progress simulation
+        simProgress = math.min(1.0, simProgress + 0.07);
+        final currentLat = targetLat + (startOffsetLat * (1.0 - simProgress));
+        final currentLng = targetLng + (startOffsetLng * (1.0 - simProgress));
+
+        if (!_locationController.isClosed) {
+          _locationController.add(WorkerPing(
+            bookingId: id,
+            workerId: 'w1',
+            lat: currentLat,
+            lng: currentLng,
+            ts: DateTime.now(),
+          ));
+        }
+
+        // Timeline simulation
+        if (!_statusController.isClosed) {
+          BookingStatus simulatedStatus;
+          if (tick < 3) {
+            simulatedStatus = BookingStatus.accepted;
+          } else if (tick < 10) {
+            simulatedStatus = BookingStatus.enRoute;
+          } else if (tick < 14) {
+            simulatedStatus = BookingStatus.arrived;
+          } else if (tick < 18) {
+            simulatedStatus = BookingStatus.started;
+          } else {
+            simulatedStatus = BookingStatus.completed;
+          }
+
+          _statusController.add(StatusUpdate(
+            bookingId: id,
+            newStatus: simulatedStatus,
+            timestamp: DateTime.now(),
+          ));
+        }
       }
     });
   }

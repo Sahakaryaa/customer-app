@@ -250,7 +250,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         onPressed: authState.isLoading ? null : _register,
                       ).animate(delay: 430.ms).fade(duration: 320.ms),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
+
+                      AppButton(
+                        label: '🚀 Explore in Demo Mode',
+                        isAmber: true,
+                        isLoading: authState.isLoading,
+                        onPressed: authState.isLoading
+                            ? null
+                            : () async {
+                                await ref
+                                    .read(authProvider.notifier)
+                                    .loginAsDemo();
+                              },
+                      ).animate(delay: 460.ms).fade(duration: 320.ms),
+
+                      const SizedBox(height: 18),
                       Center(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -275,7 +290,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             ),
                           ],
                         ),
-                      ).animate(delay: 480.ms).fade(duration: 320.ms),
+                      ).animate(delay: 490.ms).fade(duration: 320.ms),
                     ],
                   ),
                 ),

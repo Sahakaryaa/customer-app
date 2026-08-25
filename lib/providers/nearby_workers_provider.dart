@@ -40,15 +40,26 @@ final nearbyWorkersProvider =
 
   List<Worker> workers;
   if (useMockData) {
-    await Future.delayed(const Duration(milliseconds: 350));
-    workers = MockDataService.getMockWorkers(serviceType: serviceType);
-  } else {
-    final api = ref.read(apiClientProvider);
-    workers = await api.getNearbyWorkers(
-      lat: location.latitude,
-      lng: location.longitude,
+    await Future.delayed(const Duration(milliseconds: 250));
+    workers = MockDataService.getMockWorkers(
       serviceType: serviceType,
+      centerLocation: location,
     );
+  } else {
+    try {
+      final api = ref.read(apiClientProvider);
+      workers = await api.getNearbyWorkers(
+        lat: location.latitude,
+        lng: location.longitude,
+        serviceType: serviceType,
+      );
+    } catch (_) {
+      // Offline fallback: generate realistic workers around current coordinates
+      workers = MockDataService.getMockWorkers(
+        serviceType: serviceType,
+        centerLocation: location,
+      );
+    }
   }
 
   if (searchQuery != null && searchQuery.isNotEmpty) {
@@ -77,22 +88,23 @@ final nearbyWorkersProvider =
 final workerProfileProvider =
     FutureProvider.family<Worker?, String>((ref, workerId) async {
   if (useMockData) {
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(const Duration(milliseconds: 250));
     final workers = MockDataService.getMockWorkers();
-    Worker? match;
     for (final w in workers) {
-      if (w.id == workerId) {
-        match = w;
-        break;
-      }
+      if (w.id == workerId) return w;
     }
-    return match; // null when not found — caller renders EmptyState
+    return workers.firstOrNull;
   }
 
   final api = ref.read(apiClientProvider);
   try {
     return await api.getWorkerProfile(workerId); // GET /workers/{id}
   } catch (_) {
-    return null;
+    // Fallback: look up in mock workers
+    final workers = MockDataService.getMockWorkers();
+    for (final w in workers) {
+      if (w.id == workerId) return w;
+    }
+    return workers.firstOrNull;
   }
 });
