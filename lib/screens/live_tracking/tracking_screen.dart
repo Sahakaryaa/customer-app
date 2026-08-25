@@ -1,21 +1,27 @@
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/status_stepper.dart';
-import '../../widgets/primary_button.dart';
 import '../../models/booking.dart';
+import '../../providers/booking_provider.dart';
+import '../../services/api_client.dart';
 import '../../services/location_service.dart';
-import '../../widgets/cooperative_badge.dart';
-import '../../widgets/glass_card.dart';
+import '../../services/booking_socket.dart';
+import '../../widgets/app_button.dart';
+import '../../widgets/app_snack_bar.dart';
+import '../../widgets/app_tiles.dart';
+import '../../widgets/avatar_badge.dart';
 
-/// Professional 60 FPS live tracking screen with continuous coordinate interpolation,
-/// rotating vehicle heading, animated radar beacon pulses, and real-time telemetry card.
+/// Live tracking — dark hero map (CARTO dark_all) with real Socket.IO
+/// status/location updates, animated dash polyline driver→you, moving halo
+/// marker, reconnecting banner and a slide-up status timeline panel.
 class TrackingScreen extends ConsumerStatefulWidget {
   final String bookingId;
 
@@ -27,576 +33,842 @@ class TrackingScreen extends ConsumerStatefulWidget {
 
 class _TrackingScreenState extends ConsumerState<TrackingScreen>
     with TickerProviderStateMixin {
-  late LatLng _customerLocation;
-  late List<LatLng> _routePoints;
-  BookingStatus _currentStatus = BookingStatus.requested;
   final MapController _mapController = MapController();
 
-  // Animation controllers
-  late AnimationController _moveController;
-  late Animation<double> _moveAnimation;
-  late AnimationController _radarController;
-  late Animation<double> _radarAnimation;
+  Booking? _booking;
+  BookingStatus _status = BookingStatus.pending;
+  final List<BookingStatus> _reachedStatuses = [];
+  final Map<BookingStatus, DateTime?> _statusTimes = {};
 
-  // Real-time telemetry values
-  LatLng _currentWorkerPos = LocationService.defaultLocation;
-  double _workerBearing = 0.0; // in degrees
-  double _remainingDistanceKm = 1.8;
-  int _etaMinutes = 6;
-  bool _hasArrived = false;
+  LatLng _customerLocation = LocationService.defaultLocation;
+  LatLng _workerPos = LocationService.defaultLocation;
+  bool _hasWorkerPos = false;
+  double _workerBearing = 0;
+  bool _connected = false;
+  bool _cancelling = false;
+
+  // Smooth interpolation between successive location pings.
+  late final AnimationController _moveCtrl;
+  late final AnimationController _pulseCtrl;
+  LatLng _from = LocationService.defaultLocation;
+  LatLng _to = LocationService.defaultLocation;
+  StreamSubscription<WorkerPing>? _pingSub;
+  StreamSubscription<StatusUpdate>? _statusSub;
+  StreamSubscription<bool>? _connSub;
 
   @override
   void initState() {
     super.initState();
-    final activeLoc = ref.read(userLocationStateProvider);
-    _customerLocation = activeLoc.coordinates;
-
-    // Generate a high-resolution 12-waypoint curved realistic road approach path
-    _generateRoadRoute(_customerLocation);
-
-    // Initialize continuous motion controller (16 seconds total ride simulation)
-    _moveController = AnimationController(
+    _customerLocation = ref.read(userLocationStateProvider).coordinates;
+    _moveCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 16),
+      duration: const Duration(milliseconds: 900),
     );
-
-    _moveAnimation = CurvedAnimation(
-      parent: _moveController,
-      curve: Curves.easeInOutCubic,
-    );
-
-    // Radar pulse controller (repeating 1.6s loop)
-    _radarController = AnimationController(
+    _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
-
-    _radarAnimation = CurvedAnimation(
-      parent: _radarController,
-      curve: Curves.easeOut,
-    );
-
-    // Listen to continuous motion ticks (60fps continuous glide)
-    _moveAnimation.addListener(_onMotionTick);
-    _moveAnimation.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _onWorkerArrived();
-      }
-    });
-
-    // Start simulation with staged status transitions
-    _startStagedTimeline();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startRealtime());
   }
 
-  void _generateRoadRoute(LatLng dest) {
-    // Generate curved road waypoints approaching destination from 1.8km North-East
-    _routePoints = [
-      LatLng(dest.latitude + 0.0145, dest.longitude + 0.0120),
-      LatLng(dest.latitude + 0.0128, dest.longitude + 0.0098),
-      LatLng(dest.latitude + 0.0105, dest.longitude + 0.0084),
-      LatLng(dest.latitude + 0.0082, dest.longitude + 0.0068),
-      LatLng(dest.latitude + 0.0064, dest.longitude + 0.0051),
-      LatLng(dest.latitude + 0.0048, dest.longitude + 0.0039),
-      LatLng(dest.latitude + 0.0032, dest.longitude + 0.0024),
-      LatLng(dest.latitude + 0.0018, dest.longitude + 0.0012),
-      LatLng(dest.latitude + 0.0006, dest.longitude + 0.0004),
-      dest,
-    ];
-    _currentWorkerPos = _routePoints.first;
-    _workerBearing = _calculateBearing(_routePoints[0], _routePoints[1]);
-  }
+  Future<void> _startRealtime() async {
+    final rt = ref.read(bookingSocketProvider);
 
-  void _startStagedTimeline() {
-    // 0s: Requested
-    // 1.5s: Matched & Federation Partner Assigned
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        setState(() => _currentStatus = BookingStatus.matched);
-        _moveController.forward();
-      }
-    });
-  }
-
-  void _onMotionTick() {
-    if (!mounted || _routePoints.isEmpty) return;
-
-    final progress = _moveAnimation.value; // 0.0 to 1.0
-    final totalSegments = _routePoints.length - 1;
-    final scaledProgress = progress * totalSegments;
-    final segmentIndex = scaledProgress.floor().clamp(0, totalSegments - 1);
-    final segmentFraction = scaledProgress - segmentIndex;
-
-    final startPoint = _routePoints[segmentIndex];
-    final endPoint = _routePoints[segmentIndex + 1];
-
-    // Smooth linear interpolation along the active road segment
-    final interpolatedLat =
-        startPoint.latitude + (endPoint.latitude - startPoint.latitude) * segmentFraction;
-    final interpolatedLng =
-        startPoint.longitude + (endPoint.longitude - startPoint.longitude) * segmentFraction;
-
-    final newPos = LatLng(interpolatedLat, interpolatedLng);
-    final bearing = _calculateBearing(startPoint, endPoint);
-
-    setState(() {
-      _currentWorkerPos = newPos;
-      _workerBearing = bearing;
-      _remainingDistanceKm = ((1.0 - progress) * 1.8).clamp(0.05, 1.8);
-      _etaMinutes = ((1.0 - progress) * 6).ceil().clamp(1, 6);
-    });
-
-    // Gently pan camera with the moving worker every 15 frames
-    if ((progress * 100).toInt() % 8 == 0) {
-      _mapController.move(newPos, 15.2);
+    // Seed from REST first.
+    try {
+      final booking =
+          await ref.read(bookingDetailProvider(widget.bookingId).future);
+      if (!mounted) return;
+      setState(() {
+        _booking = booking;
+        _status = booking.status;
+        if (booking.latitude != 0 || booking.longitude != 0) {
+          _customerLocation = LatLng(booking.latitude, booking.longitude);
+        }
+        _seedTimeline(booking);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackBar.show(context, 'Could not refresh booking — retrying live',
+          type: SnackType.warning);
     }
-  }
 
-  double _calculateBearing(LatLng from, LatLng to) {
-    final lat1 = from.latitudeInRad;
-    final lon1 = from.longitudeInRad;
-    final lat2 = to.latitudeInRad;
-    final lon2 = to.longitudeInRad;
+    rt.connect(widget.bookingId);
 
-    final dLon = lon2 - lon1;
-    final y = math.sin(dLon) * math.cos(lat2);
-    final x = math.cos(lat1) * math.sin(lat2) -
-        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
-
-    final radians = math.atan2(y, x);
-    return (radians * 180 / math.pi + 360) % 360;
-  }
-
-  void _onWorkerArrived() {
-    if (!mounted) return;
-    setState(() {
-      _hasArrived = true;
-      _remainingDistanceKm = 0.0;
-      _etaMinutes = 0;
-      _currentStatus = BookingStatus.inProgress;
+    _connSub = rt.connectionStream.listen((connected) {
+      if (mounted) setState(() => _connected = connected);
     });
 
-    // 4s later → service completed
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted) {
-        setState(() => _currentStatus = BookingStatus.completed);
+    _statusSub = rt.statusStream.listen((update) {
+      if (update.newStatus != _status && mounted) {
+        setState(() {
+          _applyStatus(update.newStatus);
+        });
       }
     });
+
+    _pingSub = rt.locationStream.listen((ping) {
+      if (ping.lat == 0 && ping.lng == 0) return;
+      final target = LatLng(ping.lat, ping.lng);
+      if (!_hasWorkerPos && mounted) {
+        setState(() {
+          _hasWorkerPos = true;
+          _from = target;
+          _to = target;
+          _workerPos = target;
+        });
+        _fitCamera();
+        return;
+      }
+      _animateTo(target);
+    });
+  }
+
+  void _seedTimeline(Booking booking) {
+    for (final s in BookingStatus.values) {
+      if (s.stepIndex <= _status.stepIndex &&
+          s != BookingStatus.declined &&
+          s != BookingStatus.cancelled &&
+          !_reachedStatuses.contains(s)) {
+        _reachedStatuses.add(s);
+        _statusTimes[s] = null; // historical times unknown
+      }
+    }
+    _reachedStatuses.sort((a, b) => a.stepIndex.compareTo(b.stepIndex));
+  }
+
+  void _applyStatus(BookingStatus newStatus) {
+    _statusTimes[newStatus] = DateTime.now();
+    if (!_reachedStatuses.contains(newStatus)) {
+      _reachedStatuses.add(newStatus);
+      _reachedStatuses.sort((a, b) => a.stepIndex.compareTo(b.stepIndex));
+    }
+    _status = newStatus;
+  }
+
+  void _animateTo(LatLng target) {
+    setState(() {
+      _workerBearing = bearingDegrees(
+          _workerPos.latitude, _workerPos.longitude,
+          target.latitude, target.longitude);
+      _from = _workerPos;
+      _to = target;
+    });
+    _moveCtrl.forward(from: 0);
+  }
+
+  void _fitCamera() {
+    final mid = LatLng(
+      (_customerLocation.latitude + _workerPos.latitude) / 2,
+      (_customerLocation.longitude + _workerPos.longitude) / 2,
+    );
+    final km = haversineKm(_customerLocation.latitude,
+        _customerLocation.longitude, _workerPos.latitude, _workerPos.longitude);
+    final zoom = (km < 0.4)
+        ? 15.5
+        : km < 1
+            ? 14.6
+            : km < 3
+                ? 13.4
+                : 12.4;
+    _mapController.move(mid, zoom);
+  }
+
+  int get _etaMinutes {
+    if (!_hasWorkerPos || _status != BookingStatus.enRoute) return 0;
+    final km = haversineKm(_customerLocation.latitude,
+        _customerLocation.longitude, _workerPos.latitude, _workerPos.longitude);
+    return math.max(1, (km / 18 * 60).ceil()); // ~18 km/h city average
+  }
+
+  Future<void> _cancelBooking() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text('Cancel this booking?',
+            style: GoogleFonts.sora(fontSize: 17)),
+        content: Text(
+          'Your service partner will be notified immediately.',
+          style: GoogleFonts.inter(fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep it')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Cancel booking'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _cancelling = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.updateBookingStatus(
+          bookingId: widget.bookingId, status: 'cancelled');
+      if (mounted) {
+        AppSnackBar.show(context, 'Booking cancelled', type: SnackType.info);
+        context.go('/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _cancelling = false);
+        AppSnackBar.show(context, ApiClient.friendlyError(e),
+            type: SnackType.error);
+      }
+    }
   }
 
   @override
   void dispose() {
-    _moveController.dispose();
-    _radarController.dispose();
+    _pingSub?.cancel();
+    _statusSub?.cancel();
+    _connSub?.cancel();
+    _moveCtrl.dispose();
+    _pulseCtrl.dispose();
+    ref.read(bookingSocketProvider).disconnect(); // stop socket + polling
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Live Service Tracking',
-              style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.w600),
+      backgroundColor: AppColors.darkStart,
+      body: Stack(
+        children: [
+          // ── Full-bleed dark hero map ──
+          Positioned.fill(
+            bottom: MediaQuery.of(context).size.height * 0.40,
+            child: AnimatedBuilder(
+              animation: _moveCtrl,
+              builder: (context, _) => FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _hasWorkerPos
+                    ? _workerPos
+                    : _customerLocation,
+                initialZoom: 14.2,
+                minZoom: 11,
+                maxZoom: 18,
+              ),
+              children: [
+                AppTiles.darkAll(),
+                PolylineLayer(
+                  polylines: [
+                    // Casing
+                    Polyline(
+                      points: [_workerPos, _customerLocation],
+                      strokeWidth: 7,
+                      color: Colors.black.withValues(alpha: 0.45),
+                      strokeCap: StrokeCap.round,
+                    ),
+                    // Animated dashed route driver→you
+                    Polyline(
+                      points: [_workerPos, _customerLocation],
+                      strokeWidth: 4.5,
+                      color: AppColors.primaryLight,
+                      strokeCap: StrokeCap.round,
+                      pattern: StrokePattern.dashed(
+                        segments: const [12, 9],
+                      ),
+                    ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: [
+                    // Customer pin (gold per spec)
+                    Marker(
+                      point: _customerLocation,
+                      width: 46,
+                      height: 46,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.warning,
+                          border: Border.all(
+                              color: Colors.white, width: 2.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.warning
+                                  .withValues(alpha: 0.5),
+                              blurRadius: 10,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.home_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                    ),
+                    // Moving worker halo marker
+                    if (_hasWorkerPos)
+                      Marker(
+                        point: interpolateAlong(
+                          [_from, _to],
+                          Curves.easeInOut.transform(_moveCtrl.value),
+                        ),
+                        width: 64,
+                        height: 64,
+                        child: AnimatedBuilder(
+                          animation:
+                              Listenable.merge([_moveCtrl, _pulseCtrl]),
+                          builder: (context, _) {
+                            return Stack(
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.none,
+                              children: [
+                                Transform.rotate(
+                                  angle: _workerBearing * math.pi / 180,
+                                  child: Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration:
+                                        const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient:
+                                          AppColors.primaryGradient,
+                                    ),
+                                    child: Container(
+                                      margin:
+                                          const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: Colors.white,
+                                            width: 2),
+                                      ),
+                                      child: const Icon(
+                                          Icons.navigation_rounded,
+                                          size: 17,
+                                          color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                                // Pulsing halo ring (repeating)
+                                Container(
+                                  width:
+                                      38 + (26 * _pulseCtrl.value),
+                                  height:
+                                      38 + (26 * _pulseCtrl.value),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: AppColors.primaryLight
+                                          .withValues(alpha:
+                                              (1 - _pulseCtrl.value) *
+                                                  0.55),
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+                AppTiles.attribution(dark: true),
+              ],
             ),
-            Text(
-              'Booking #${widget.bookingId.substring(0, math.min(8, widget.bookingId.length))}',
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.white70),
             ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location_rounded),
-            tooltip: 'Center Map',
-            onPressed: () => _mapController.move(_currentWorkerPos, 15.4),
+          ),
+
+          // ── Top overlay: back + reconnecting banner + status chip ──
+          SafeArea(
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _circleBtn(Icons.arrow_back_rounded, () {
+                        context.canPop()
+                            ? context.pop()
+                            : context.go('/home');
+                      }),
+                      const Spacer(),
+                      StatusPill(status: _status),
+                    ],
+                  ).animate().fade(duration: 300.ms),
+                  if (!_connected)
+                    Container(
+                      margin: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 13,
+                            height: 13,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.warning,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Reconnecting to live updates…',
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.warning,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                        .animate(onPlay: (c) => c.repeat(reverse: true))
+                        .fade(begin: 1, end: 0.55,
+                            duration: 900.ms),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Slide-up panel ──
+          DraggableScrollableSheet(
+            initialChildSize: 0.42,
+            minChildSize: 0.32,
+            maxChildSize: 0.62,
+            builder: (context, scrollController) {
+              return Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(28)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x14000000),
+                      blurRadius: 24,
+                      offset: Offset(0, -8),
+                    ),
+                  ],
+                ),
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      _buildHeaderRow(),
+                      const SizedBox(height: 14),
+
+                      // ETA card
+                      if (_status == BookingStatus.enRoute ||
+                          _status == BookingStatus.accepted)
+                        _etaCard(),
+                      if (_status == BookingStatus.completed ||
+                          _status == BookingStatus.started)
+                        _completedCard(),
+
+                      const SizedBox(height: 14),
+
+                      // Contact row
+                      if (_booking?.workerName != null) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AppButton(
+                                label: 'Call',
+                                isOutlined: true,
+                                icon: Icons.phone_in_talk_rounded,
+                                height: 46,
+                                onPressed: () => AppSnackBar.show(context,
+                                    'Connecting to ${_booking!.workerName}…',
+                                    type: SnackType.info),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: AppButton(
+                                label: 'Chat',
+                                isOutlined: true,
+                                outlineColor: AppColors.info,
+                                icon: Icons.chat_bubble_rounded,
+                                height: 46,
+                                onPressed: () => AppSnackBar.show(context,
+                                    'Chat opens after partner accepts',
+                                    type: SnackType.info),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_booking?.cancellable ?? false) ...[
+                        GestureDetector(
+                          onTap: _cancelling ? null : _cancelBooking,
+                          child: Container(
+                            width: double.infinity,
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            child: _cancelling
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : Text('Cancel booking',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.danger)),
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 8),
+                      Text('Status Timeline',
+                          style: GoogleFonts.sora(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 12),
+                      _timeline(),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Stepper Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+    );
+  }
+
+  Widget _circleBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: 0.94),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 10,
             ),
-            child: StatusStepper(currentStatus: _currentStatus),
+          ],
+        ),
+        child: Icon(icon, size: 20, color: AppColors.ink),
+      ),
+    );
+  }
+
+  Widget _buildHeaderRow() {
+    final workerName = _booking?.workerName ?? 'Awaiting assignment';
+    final price = _booking?.price ?? 0;
+    final address = _booking?.address ?? '';
+
+    return Row(
+      children: [
+        AvatarBadge(name: workerName, size: 46, online: _connected),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(workerName,
+                  style: GoogleFonts.sora(
+                      fontSize: 15.5, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(
+                address.isEmpty
+                    ? '₹${price.toStringAsFixed(0)} • Live GPS connected'
+                    : '$address • ₹${price.toStringAsFixed(0)}',
+                style: GoogleFonts.inter(
+                    fontSize: 11.5, color: AppColors.inkSoft),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-
-          // Live Interactive Map Viewport
-          Expanded(
-            child: Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _customerLocation,
-                    initialZoom: 14.8,
-                    minZoom: 11.0,
-                    maxZoom: 18.0,
-                  ),
-                  children: [
-                    // Real Google Maps Roadmap Tile Layer
-                    TileLayer(
-                      urlTemplate: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-                      subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
-                      userAgentPackageName: 'com.sahakarya.customer_app',
-                      maxZoom: 20,
-                    ),
-
-                    // Approach Route Polyline (Google Maps double stroke style)
-                    if (_routePoints.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: _routePoints,
-                            color: const Color(0xFF0F4C5C).withValues(alpha: 0.9),
-                            strokeWidth: 6.0,
-                            strokeCap: StrokeCap.round,
-                            strokeJoin: StrokeJoin.round,
-                          ),
-                          Polyline(
-                            points: _routePoints,
-                            color: const Color(0xFF14B8A6),
-                            strokeWidth: 4.0,
-                            strokeCap: StrokeCap.round,
-                            strokeJoin: StrokeJoin.round,
-                          ),
-                        ],
-                      ),
-
-                    // Animated Markers Layer
-                    MarkerLayer(
-                      markers: [
-                        // 1. Customer Destination Marker with Teal Radar Wave
-                        Marker(
-                          point: _customerLocation,
-                          width: 80,
-                          height: 80,
-                          child: AnimatedBuilder(
-                            animation: _radarAnimation,
-                            builder: (context, child) {
-                              return Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  // Expanding outer pulse ring
-                                  Container(
-                                    width: 32 + (40 * _radarAnimation.value),
-                                    height: 32 + (40 * _radarAnimation.value),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: AppColors.teal.withValues(
-                                        alpha: (1.0 - _radarAnimation.value) * 0.35,
-                                      ),
-                                      border: Border.all(
-                                        color: AppColors.teal.withValues(
-                                          alpha: (1.0 - _radarAnimation.value) * 0.6,
-                                        ),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                  // Pin icon
-                                  Container(
-                                    width: 36,
-                                    height: 36,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.teal,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: AppColors.teal.withValues(alpha: 0.4),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 3),
-                                        ),
-                                      ],
-                                    ),
-                                    child: const Icon(
-                                      Icons.home_rounded,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-
-                        // 2. Smoothly Moving Worker Marker with Orange Radar Beacon & Heading
-                        Marker(
-                          point: _currentWorkerPos,
-                          width: 80,
-                          height: 80,
-                          child: AnimatedBuilder(
-                            animation: _radarAnimation,
-                            builder: (context, child) {
-                              return Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  // Expanding orange beacon ring
-                                  Container(
-                                    width: 34 + (38 * _radarAnimation.value),
-                                    height: 34 + (38 * _radarAnimation.value),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: AppColors.orange.withValues(
-                                        alpha: (1.0 - _radarAnimation.value) * 0.4,
-                                      ),
-                                    ),
-                                  ),
-                                  // Rotatable vehicle marker
-                                  Transform.rotate(
-                                    angle: (_workerBearing * math.pi / 180),
-                                    child: Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        gradient: AppColors.orangeGradient,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: AppColors.orange.withValues(alpha: 0.5),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ],
-                                        border: Border.all(color: Colors.white, width: 2.5),
-                                      ),
-                                      child: const Center(
-                                        child: Icon(
-                                          Icons.navigation_rounded,
-                                          color: Colors.white,
-                                          size: 20,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-
-                // Floating Live Telemetry GlassCard (ETA + Distance Progress)
-                Positioned(
-                  top: 14,
-                  left: 16,
-                  right: 16,
-                  child: GlassCard(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: _hasArrived
-                                ? AppColors.teal.withValues(alpha: 0.12)
-                                : AppColors.orange.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            _hasArrived ? Icons.verified_rounded : Icons.electric_moped_rounded,
-                            color: _hasArrived ? AppColors.teal : AppColors.orange,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _hasArrived
-                                    ? 'Partner Arrived at Location'
-                                    : 'Arriving in ~$_etaMinutes mins',
-                                style: GoogleFonts.sora(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.ink,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _hasArrived
-                                    ? 'Service commencing • Delhi Central Federation'
-                                    : '${_remainingDistanceKm.toStringAsFixed(1)} km away • Live GPS Connected',
-                                style: GoogleFonts.inter(fontSize: 12, color: AppColors.inkLight),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.teal,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'LIVE',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Bottom Worker Details & Actions Card
+        ),
+        if (_connected)
           Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, -4),
-                ),
-              ],
+              color: AppColors.success.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Worker Profile Header
-                Row(
-                  children: [
-                    Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: AppColors.teal.withValues(alpha: 0.12),
-                          child: Text(
-                            'RK',
-                            style: GoogleFonts.sora(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.teal,
-                            ),
-                          ),
-                        ),
-                        const Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Icon(
-                            Icons.verified_rounded,
-                            color: AppColors.gold,
-                            size: 18,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                'Ramesh Kumar',
-                                style: GoogleFonts.sora(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.ink,
-                                ),
-                              ),
-                              const CooperativeBadge(
-                                federationName: 'SahaKarya Certified',
-                                isCompact: true,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'Master Electrician • 840+ Completed Jobs',
-                            style: GoogleFonts.inter(fontSize: 12, color: AppColors.inkLight),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      shape: BoxShape.circle, color: AppColors.success),
                 ),
-                const SizedBox(height: 16),
-                const Divider(height: 1),
-                const SizedBox(height: 14),
-
-                // Action CTA
-                if (_currentStatus == BookingStatus.completed)
-                  PrimaryButton(
-                    label: 'Proceed to Payment (₹450)',
-                    icon: Icons.payment_rounded,
-                    onPressed: () => context.go('/booking/${widget.bookingId}/payment'),
-                  )
-                else
-                  Row(
-                    children: [
-                      Expanded(
-                        child: PrimaryButton(
-                          label: 'Call Partner',
-                          icon: Icons.phone_in_talk_rounded,
-                          isOutlined: true,
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Connecting to Ramesh Kumar (+91 98111 00001)...'),
-                                backgroundColor: AppColors.teal,
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: PrimaryButton(
-                          label: 'SOS Emergency',
-                          icon: Icons.shield_rounded,
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('SahaKarya Federation 24/7 Safety Desk Alerted!'),
-                                backgroundColor: AppColors.error,
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
+                const SizedBox(width: 4),
+                Text('LIVE',
+                    style: GoogleFonts.inter(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                        color: AppColors.success)),
               ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _etaCard() {
+    final waiting = _etaMinutes == 0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          AppColors.primary.withValues(alpha: 0.08),
+          AppColors.primaryLight.withValues(alpha: 0.12),
+        ]),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            waiting ? Icons.schedule_rounded : Icons.electric_moped_rounded,
+            color: AppColors.primary,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              waiting
+                  ? 'Partner confirmed — heading your way soon'
+                  : 'Arriving in ~$_etaMinutes min '
+                      '(${haversineKm(_customerLocation.latitude, _customerLocation.longitude, _workerPos.latitude, _workerPos.longitude).toStringAsFixed(1)} km away)',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
             ),
           ),
         ],
+      ),
+    ).animate(delay: 150.ms).fade(duration: 320.ms).slideY(begin: 0.15, end: 0);
+  }
+
+  Widget _completedCard() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          AppColors.success.withValues(alpha: 0.08),
+          AppColors.success.withValues(alpha: 0.05),
+        ]),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded,
+              color: AppColors.success, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _status == BookingStatus.completed
+                  ? 'Service completed — rate your experience'
+                  : 'Service in progress at your location.',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.success,
+              ),
+            ),
+          ),
+          if (_status == BookingStatus.completed)
+            GestureDetector(
+              onTap: () => context.go('/booking/${widget.bookingId}/rate'),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  gradient: AppColors.amberGradient,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('Rate',
+                    style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink)),
+              ),
+            ),
+        ],
+      ),
+    ).animate(delay: 150.ms).fade(duration: 320.ms).slideY(begin: 0.15, end: 0);
+  }
+
+  Widget _timeline() {
+    const steps = [
+      (BookingStatus.accepted, Icons.handshake_rounded, 'Accepted'),
+      (BookingStatus.enRoute, Icons.electric_moped_rounded, 'En Route'),
+      (BookingStatus.arrived, Icons.location_on_rounded, 'Arrived'),
+      (BookingStatus.started, Icons.handyman_rounded, 'Started'),
+      (BookingStatus.completed, Icons.check_circle_rounded, 'Completed'),
+    ];
+
+    return Column(
+      children: List.generate(steps.length, (i) {
+        final (status, icon, label) = steps[i];
+        final reached = _reachedStatuses.any(
+            (s) => s == status || s.stepIndex > status.stepIndex && s != BookingStatus.cancelled);
+        final active = _status == status;
+        final isLast = i == steps.length - 1;
+
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.easeOutCubic,
+                    width: active ? 34 : 28,
+                    height: active ? 34 : 28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: reached || active
+                          ? AppColors.primaryGradient
+                          : null,
+                      color: reached || active ? null : AppColors.surfaceAlt,
+                      border: Border.all(
+                        color: reached || active
+                            ? Colors.transparent
+                            : AppColors.border,
+                        width: 1.6,
+                      ),
+                      boxShadow: active
+                          ? [
+                              BoxShadow(
+                                color: AppColors.primary
+                                    .withValues(alpha: 0.35),
+                                blurRadius: 12,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Icon(icon,
+                        size: active ? 17 : 14,
+                        color: reached || active
+                            ? Colors.white
+                            : AppColors.inkFaint),
+                  ),
+                  if (!isLast)
+                    Expanded(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        width: 2.4,
+                        margin: const EdgeInsets.symmetric(vertical: 3),
+                        color: reached && !active
+                            ? AppColors.primary
+                            : AppColors.border,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(top: active ? 8 : 6, bottom: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 250),
+                          style: GoogleFonts.inter(
+                            fontSize: 13.5,
+                            fontWeight: active
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: reached || active
+                                ? AppColors.ink
+                                : AppColors.inkFaint,
+                          ),
+                          child: Text(label),
+                        ),
+                      ),
+                      if (_statusTimes[status] != null)
+                        Text(
+                          '${_statusTimes[status]!.hour}:${_statusTimes[status]!.minute.toString().padLeft(2, '0')}',
+                          style: GoogleFonts.inter(
+                              fontSize: 11.5, color: AppColors.inkFaint),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// Small status pill shown over the map.
+class StatusPill extends StatelessWidget {
+  final BookingStatus status;
+
+  const StatusPill({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 12,
+          ),
+        ],
+      ),
+      child: Text(
+        status.label.toUpperCase(),
+        style: GoogleFonts.inter(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+          color: AppColors.primary,
+        ),
       ),
     );
   }

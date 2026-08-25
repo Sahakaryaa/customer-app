@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'app_colors.dart';
 import 'app_typography.dart';
 
-/// Complete ThemeData for the customer app.
-/// Customer app is teal-forward (institutional trust), with orange for CTAs.
+/// Complete ThemeData for the customer app (Luxe design system).
+/// Indigo primary + amber CTA accents; zero default Material blue.
 class AppTheme {
   AppTheme._();
 
@@ -14,25 +15,30 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.bg,
       textTheme: AppTypography.textTheme,
       colorScheme: const ColorScheme.light(
-        primary: AppColors.teal,
+        primary: AppColors.primary,
         onPrimary: Colors.white,
-        secondary: AppColors.orange,
-        onSecondary: Colors.white,
-        tertiary: AppColors.gold,
+        secondary: AppColors.amber,
+        onSecondary: AppColors.ink,
+        tertiary: AppColors.primaryLight,
         surface: AppColors.surface,
         onSurface: AppColors.ink,
-        error: AppColors.error,
+        error: AppColors.danger,
         onError: Colors.white,
         outline: AppColors.border,
       ),
 
-      // App Bar
-      appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.teal,
-        foregroundColor: Colors.white,
+      // App Bar — light surface w/ ink foreground (heroes are custom gradients)
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.ink,
         elevation: 0,
         centerTitle: false,
-        scrolledUnderElevation: 2,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: AppTypography.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
       ),
 
       // Cards
@@ -40,21 +46,21 @@ class AppTheme {
         color: AppColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: AppColors.border, width: 1),
         ),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
 
-      // Elevated buttons (primary CTA — orange)
+      // Elevated buttons (fallback CTA — indigo)
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.orange,
+          backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: AppTypography.textTheme.labelLarge,
         ),
@@ -63,11 +69,11 @@ class AppTheme {
       // Outlined buttons
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.teal,
-          side: const BorderSide(color: AppColors.teal, width: 1.5),
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary, width: 1.5),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: AppTypography.textTheme.labelLarge,
         ),
@@ -76,7 +82,7 @@ class AppTheme {
       // Text buttons
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.teal,
+          foregroundColor: AppColors.primary,
           textStyle: AppTypography.textTheme.labelLarge,
         ),
       ),
@@ -85,42 +91,39 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.teal, width: 2),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.error),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.danger),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.danger, width: 2),
         ),
         hintStyle: AppTypography.textTheme.bodyMedium?.copyWith(
-          color: AppColors.inkMuted,
+          color: AppColors.inkFaint,
         ),
         labelStyle: AppTypography.textTheme.bodyMedium,
       ),
 
-      // Bottom navigation
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: AppColors.surface,
-        selectedItemColor: AppColors.teal,
-        unselectedItemColor: AppColors.inkMuted,
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-      ),
-
       // Chips
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.bg,
-        selectedColor: AppColors.teal,
+        backgroundColor: AppColors.surfaceAlt,
+        selectedColor: AppColors.primary,
+        checkmarkColor: Colors.white,
         labelStyle: AppTypography.textTheme.labelMedium!,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
@@ -130,26 +133,27 @@ class AppTheme {
 
       // Floating action button
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: AppColors.orange,
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 4,
+        shape: CircleBorder(),
       ),
 
       // Divider
       dividerTheme: const DividerThemeData(
-        color: AppColors.divider,
+        color: AppColors.border,
         thickness: 1,
         space: 1,
       ),
 
-      // Snackbar
+      // Snackbar (branded fallback; prefer AppSnackBar helper)
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.ink,
         contentTextStyle: AppTypography.textTheme.bodyMedium?.copyWith(
           color: Colors.white,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
         behavior: SnackBarBehavior.floating,
       ),

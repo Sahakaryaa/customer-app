@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user.dart';
 import '../services/api_client.dart';
 
-/// Whether to use mock data (true) or real API (false).
-/// Set to false once the backend is deployed.
-const bool useMockData = true;
+/// Whether to use mock data (true) or the real API (false).
+/// The backend implements API_CONTRACT.md, so real mode is the default.
+const bool useMockData = false;
 
 /// Auth state holding the current user and login status.
 class AuthState {
@@ -36,6 +36,20 @@ class AuthState {
   }
 }
 
+/// Safely extract the nested `user` object from a TokenResponse.
+/// TokenResponse = {access_token, token_type, user: UserResponse}.
+User? _parseTokenUser(Map<String, dynamic> data) {
+  final raw = data['user'];
+  if (raw is Map) {
+    try {
+      return User.fromJson(Map<String, dynamic>.from(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 /// Auth state notifier managing login, register, and logout.
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient _api;
@@ -44,13 +58,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _tryAutoLogin();
   }
 
-  /// Attempt to restore session from stored JWT.
+  /// Attempt to restore session from stored JWT via GET /auth/me.
   Future<void> _tryAutoLogin() async {
     state = state.copyWith(isLoading: true);
     try {
       final token = await _api.getToken();
       if (token != null && useMockData) {
-        // In mock mode, create a demo user if token exists
         state = state.copyWith(
           user: User(
             id: 'demo_customer',
@@ -62,7 +75,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isLoading: false,
           clearError: true,
         );
-      } else if (token != null) {
+      } else if (token != null && token.isNotEmpty) {
+        // Contract: GET /auth/me returns the current UserResponse.
         final user = await _api.getCurrentUser();
         state = state.copyWith(user: user, isLoading: false, clearError: true);
       } else {
@@ -73,7 +87,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Register a new customer.
+  /// Register a new customer. POST /auth/register → TokenResponse {user}.
   Future<bool> register({
     required String phone,
     required String name,
@@ -82,9 +96,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       if (useMockData) {
-        // Simulate registration
         await Future.delayed(const Duration(milliseconds: 800));
-        await _api.saveToken('mock_jwt_token_${DateTime.now().millisecondsSinceEpoch}');
+        await _api.saveToken(
+            'mock_jwt_token_${DateTime.now().millisecondsSinceEpoch}');
         state = state.copyWith(
           user: User(
             id: 'demo_customer',
@@ -103,20 +117,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
         name: name,
         password: password,
       );
-      await _api.saveToken(data['access_token'] as String);
-      final user = User.fromJson(data['user'] as Map<String, dynamic>);
+      await _api.saveToken(data['access_token']?.toString() ?? '');
+      var user = _parseTokenUser(data); // nested user per contract
+      user ??= await _api.getCurrentUser(); // null-safe fallback
       state = state.copyWith(user: user, isLoading: false);
       return true;
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
-        error: 'Registration failed. Please try again.',
+        error: ApiClient.friendlyError(e),
       );
       return false;
     }
   }
 
-  /// Login with phone and password (OTP mock: any 6-digit code works).
+  /// Login with phone + password. POST /auth/login → TokenResponse {user}.
   Future<bool> login({
     required String phone,
     required String password,
@@ -124,9 +139,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       if (useMockData) {
-        // Simulate login
         await Future.delayed(const Duration(milliseconds: 800));
-        await _api.saveToken('mock_jwt_token_${DateTime.now().millisecondsSinceEpoch}');
+        await _api.saveToken(
+            'mock_jwt_token_${DateTime.now().millisecondsSinceEpoch}');
         state = state.copyWith(
           user: User(
             id: 'demo_customer',
@@ -141,14 +156,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       final data = await _api.login(phone: phone, password: password);
-      await _api.saveToken(data['access_token'] as String);
-      final user = User.fromJson(data['user'] as Map<String, dynamic>);
+      await _api.saveToken(data['access_token']?.toString() ?? '');
+      var user = _parseTokenUser(data);
+      user ??= await _api.getCurrentUser();
       state = state.copyWith(user: user, isLoading: false);
       return true;
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
-        error: 'Login failed. Check your credentials.',
+        error: ApiClient.friendlyError(e),
       );
       return false;
     }

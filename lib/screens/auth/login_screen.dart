@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/primary_button.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/app_button.dart';
+import '../../widgets/glass_card.dart';
 
-/// Login screen with phone + OTP (mocked).
+/// Login — dark gradient header + glass form card.
+/// Phone + password (min 4 chars); sent directly as `password` per contract.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -15,42 +19,37 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneController = TextEditingController();
-  final _otpController = TextEditingController();
-  bool _otpSent = false;
+  final _passwordController = TextEditingController();
+  bool _obscure = true;
 
   @override
   void dispose() {
     _phoneController.dispose();
-    _otpController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _sendOtp() async {
-    if (_phoneController.text.trim().length < 10) {
+  Future<void> _login() async {
+    final phone = _phoneController.text.trim();
+    final password = _passwordController.text;
+
+    if (phone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid 10-digit phone number')),
+        const SnackBar(
+            content: Text('Please enter a valid 10-digit phone number')),
       );
       return;
     }
-    // Mock OTP send — no real SMS gateway needed
-    setState(() => _otpSent = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP sent! (Demo: use any 6-digit code)')),
-    );
-  }
-
-  Future<void> _verifyOtp() async {
-    if (_otpController.text.trim().length != 6) {
+    if (password.length < 4) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a 6-digit OTP')),
+        const SnackBar(content: Text('Password must be at least 4 characters')),
       );
       return;
     }
 
-    // OTP mock — accept any 6-digit code
     await ref.read(authProvider.notifier).login(
-          phone: _phoneController.text.trim(),
-          password: _otpController.text.trim(),
+          phone: phone,
+          password: password,
         );
   }
 
@@ -58,218 +57,229 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
 
-    // Show error if any
     ref.listen<AuthState>(authProvider, (prev, next) {
       if (next.error != null && prev?.error != next.error) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(next.error!)),
+          SnackBar(
+            content: Text(next.error!),
+            backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     });
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 60),
-
-              // Logo / Header
-              Center(
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: AppColors.teal,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.teal.withValues(alpha: 0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // ── Gradient hero header ──
+            Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: AppColors.darkGradient,
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(36),
+                  bottomRight: Radius.circular(36),
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 64),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              gradient: AppColors.primaryGradient,
+                            ),
+                            child: const Icon(Icons.handshake_rounded,
+                                size: 24, color: Colors.white),
+                          ).animate().scale(
+                                begin: const Offset(0.5, 0.5),
+                                end: const Offset(1, 1),
+                                curve: Curves.elasticOut,
+                                duration: 700.ms,
+                              ),
+                          const SizedBox(width: 10),
+                          RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.sora(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Saha'),
+                                TextSpan(
+                                    text: 'Karya',
+                                    style:
+                                        TextStyle(color: AppColors.amber)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      )
+                          .animate()
+                          .fade(duration: 300.ms)
+                          .slideY(begin: -0.2, end: 0),
+                      const SizedBox(height: 34),
+                      Text(
+                        'Welcome back 👋',
+                        style: GoogleFonts.sora(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.6,
+                        ),
+                      ).animate(delay: 100.ms).fade(duration: 350.ms).slideY(
+                          begin: 0.3, end: 0, curve: Curves.easeOutCubic),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Login to book cooperative-verified services.',
+                        style: GoogleFonts.inter(
+                          fontSize: 14.5,
+                          color: Colors.white70,
+                        ),
+                      ).animate(delay: 180.ms).fade(duration: 350.ms).slideY(
+                          begin: 0.3, end: 0, curve: Curves.easeOutCubic),
                     ],
                   ),
-                  child: const Icon(
-                    Icons.handshake_rounded,
-                    size: 40,
-                    color: Colors.white,
-                  ),
                 ),
               ),
-              const SizedBox(height: 32),
+            ),
 
-              // Title
-              Center(
-                child: Text(
-                  'Welcome Back',
-                  style: GoogleFonts.sora(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  'Login to book cooperative-verified services',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: AppColors.inkLight,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 48),
-
-              // Phone input
-              Text(
-                'Phone Number',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.ink,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                maxLength: 10,
-                enabled: !_otpSent,
-                decoration: InputDecoration(
-                  hintText: 'Enter 10-digit mobile number',
-                  prefixIcon: const Padding(
-                    padding: EdgeInsets.only(left: 16, right: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+            // ── Glass form card overlapping the header ──
+            Transform.translate(
+              offset: const Offset(0, -32),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: GlassCard(
+                  opacity: 0.9,
+                  child: Form(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('🇮🇳 +91',
-                            style: TextStyle(fontSize: 14, color: AppColors.ink)),
-                        SizedBox(width: 8),
-                        SizedBox(
-                          height: 24,
-                          child: VerticalDivider(
-                            color: AppColors.border,
-                            thickness: 1,
+                        _fieldLabel('Phone Number'),
+                        TextField(
+                          controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          maxLength: 10,
+                          enabled: !authState.isLoading,
+                          decoration: InputDecoration(
+                            hintText: 'Enter 10-digit mobile number',
+                            counterText: '',
+                            prefixIcon: const Padding(
+                              padding: EdgeInsets.only(left: 16, right: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text('+91',
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          color: AppColors.ink,
+                                          fontWeight: FontWeight.w600)),
+                                  SizedBox(width: 8),
+                                  SizedBox(
+                                    height: 24,
+                                    child: VerticalDivider(
+                                        color: AppColors.border, thickness: 1),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
+                        ).animate(delay: 260.ms).fade(duration: 320.ms).slideY(
+                            begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+
+                        const SizedBox(height: 18),
+                        _fieldLabel('Password'),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscure,
+                          enabled: !authState.isLoading,
+                          onSubmitted: (_) => _login(),
+                          decoration: InputDecoration(
+                            hintText: 'Min 4 characters',
+                            prefixIcon: const Icon(Icons.lock_outline_rounded,
+                                size: 20),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                size: 20,
+                                color: AppColors.inkFaint,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                        ).animate(delay: 330.ms).fade(duration: 320.ms).slideY(
+                            begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+
+                        const SizedBox(height: 26),
+                        AppButton(
+                          label: 'Login',
+                          isLoading: authState.isLoading,
+                          onPressed: authState.isLoading ? null : _login,
+                        ).animate(delay: 400.ms).fade(duration: 320.ms),
+
+                        const SizedBox(height: 20),
+                        Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "Don't have an account? ",
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  color: AppColors.inkSoft,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => context.go('/register'),
+                                child: Text(
+                                  'Register',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ).animate(delay: 460.ms).fade(duration: 320.ms),
                       ],
                     ),
                   ),
-                  counterText: '',
                 ),
               ),
+            ),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
 
-              if (_otpSent) ...[
-                const SizedBox(height: 20),
-
-                // OTP input
-                Text(
-                  'Enter OTP',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _otpController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter 6-digit OTP',
-                    counterText: '',
-                    prefixIcon: Icon(Icons.lock_outline),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('OTP resent! (Demo mode)')),
-                      );
-                    },
-                    child: const Text('Resend OTP'),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-
-              // Submit button
-              PrimaryButton(
-                label: _otpSent ? 'Verify & Login' : 'Send OTP',
-                isLoading: authState.isLoading,
-                icon: _otpSent ? Icons.login_rounded : Icons.sms_rounded,
-                onPressed: _otpSent ? _verifyOtp : _sendOtp,
-              ),
-              const SizedBox(height: 20),
-
-              // Register link
-              Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "Don't have an account? ",
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: AppColors.inkLight,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // Navigate to register — handled by go_router
-                        Navigator.of(context).pushReplacementNamed('/register');
-                      },
-                      child: Text(
-                        'Register',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.teal,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 40),
-
-              // Demo hint
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, size: 18, color: AppColors.goldDark),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Demo mode: Any 10-digit phone & 6-digit OTP will work.',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: AppColors.goldDark,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+  Widget _fieldLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: GoogleFonts.inter(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+          color: AppColors.ink,
         ),
       ),
     );

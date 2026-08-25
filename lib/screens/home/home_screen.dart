@@ -1,19 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_colors.dart';
+import '../../models/booking.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/booking_provider.dart';
 import '../../providers/nearby_workers_provider.dart';
-import '../../services/mock_data_service.dart';
-import '../../widgets/service_category_tile.dart';
 import '../../services/location_service.dart';
-import '../../widgets/cooperative_badge.dart';
+import '../../services/mock_data_service.dart';
+import '../../widgets/app_tiles.dart';
+import '../../widgets/avatar_badge.dart';
+import '../../widgets/section_header.dart';
+import '../../widgets/status_chip.dart';
+import '../../widgets/skeleton_box.dart';
 
-/// Main home screen — Bento Grid layout, interactive search, live location cluster selector,
-/// pulsing emergency CTA, and cooperative trust stats per 08-flutter-immersive-ui-skill.md §2.2.
+/// Home — Luxe redesign: greeting header with AvatarBadge, floating search
+/// pill, category chips, top-rated carousel, nearby mini-map card and
+/// recent bookings with StatusChips (tap → tracking).
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -21,44 +28,41 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
-
-    _pulseAnimation = Tween<double>(begin: 0.98, end: 1.02).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
+    // Fix: listener drives the clear (X) button visibility reactively.
+    _searchController.addListener(() {
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(locationServiceProvider)
+          .resolveAndApply(ref, context: context); // GPS chain per spec
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _pulseController.dispose();
     super.dispose();
   }
 
   void _onSearch(String query) {
     HapticFeedback.lightImpact();
+    FocusScope.of(context).unfocus();
     final trimmed = query.trim();
-    if (trimmed.isNotEmpty) {
-      ref.read(selectedServiceProvider.notifier).state = null;
-      ref.read(workerSearchQueryProvider.notifier).state = trimmed;
-      context.push('/workers?search=${Uri.encodeComponent(trimmed)}');
-    } else {
-      ref.read(selectedServiceProvider.notifier).state = null;
-      ref.read(workerSearchQueryProvider.notifier).state = null;
-      context.push('/workers');
-    }
+    ref.read(selectedServiceProvider.notifier).state = null;
+    ref.read(emergencyModeProvider.notifier).state = false;
+    ref.read(workerSearchQueryProvider.notifier).state =
+        trimmed.isEmpty ? null : trimmed;
+    context.push(
+      trimmed.isEmpty ? '/workers' : '/workers?search=${Uri.encodeComponent(trimmed)}',
+    );
   }
 
   @override
@@ -66,254 +70,298 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final authState = ref.watch(authProvider);
     final userName = authState.user?.name ?? 'Customer';
     final activeLocation = ref.watch(userLocationStateProvider);
+    final isApproximate = ref.watch(locationIsApproximateProvider);
+    final workersAsync = ref.watch(nearbyWorkersProvider(activeLocation.coordinates));
+    final historyAsync = ref.watch(bookingHistoryProvider);
+
+    // Compute recent list ONCE per build (fix for double mock-history call).
+    final List<Booking> recentBookings =
+        (historyAsync.valueOrNull ?? const []).take(3).toList();
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        slivers: [
-          // Top header with greeting & Live Location Cluster Pill
-          SliverToBoxAdapter(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: AppColors.tealGradient,
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(28),
-                  bottomRight: Radius.circular(28),
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        backgroundColor: Colors.white,
+        onRefresh: () async {
+          ref.invalidate(nearbyWorkersProvider(activeLocation.coordinates));
+          ref.invalidate(bookingHistoryProvider);
+        },
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          slivers: [
+            // ── Greeting header ──
+            SliverToBoxAdapter(
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: AppColors.darkGradient,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(32),
+                    bottomRight: Radius.circular(32),
+                  ),
                 ),
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Location Selector Bar
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          LocationService.showLocationPickerModal(context, ref);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.25),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.location_on_rounded,
-                                color: AppColors.gold,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 6),
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 210),
-                                child: Text(
-                                  activeLocation.areaName,
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () =>
+                                        LocationService.showLocationPickerModal(
+                                            context, ref),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 7),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.10),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.22),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.location_on_rounded,
+                                              color: AppColors.amber, size: 15),
+                                          const SizedBox(width: 6),
+                                          ConstrainedBox(
+                                            constraints:
+                                                const BoxConstraints(
+                                                    maxWidth: 220),
+                                            child: Text(
+                                              activeLocation.areaName,
+                                              style: GoogleFonts.inter(
+                                                color: Colors.white,
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(
+                                              Icons.keyboard_arrow_down_rounded,
+                                              color: Colors.white60,
+                                              size: 16),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    'Hello, $userName',
+                                    style: GoogleFonts.sora(
+                                      fontSize: 23,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: -0.4,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Cooperative services. Fair dignity.',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      color: Colors.white.withValues(alpha: .75),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.keyboard_arrow_down_rounded,
-                                color: Colors.white70,
-                                size: 16,
+                            ),
+                            const SizedBox(width: 12),
+                            GestureDetector(
+                              onTap: () => context.push('/profile'),
+                              child: AvatarBadge(name: userName, size: 48),
+                            ).animate().scale(
+                                  begin: const Offset(0.6, 0.6),
+                                  end: const Offset(1, 1),
+                                  curve: Curves.elasticOut,
+                                  duration: 600.ms,
+                                ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+
+                        // ── Floating rounded search pill ──
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.18),
+                                blurRadius: 24,
+                                offset: const Offset(0, 8),
                               ),
                             ],
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Top bar with profile
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Hello, $userName',
-                                  style: GoogleFonts.sora(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Cooperative Services, Fair Dignity.',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.search_rounded,
+                                  color: AppColors.primary, size: 22),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: _searchController,
+                                  textInputAction: TextInputAction.search,
+                                  onSubmitted: _onSearch,
                                   style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: Colors.white.withValues(alpha: 0.85),
+                                      fontSize: 14, color: AppColors.ink),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    filled: false,
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(vertical: 12),
+                                    hintText:
+                                        'Search electrician, plumber, cleaner…',
+                                    hintStyle: GoogleFonts.inter(
+                                        fontSize: 13.5, color: AppColors.inkFaint),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
+                              ),
+                              // Clear (X) now driven by the text controller listener.
+                              if (_searchController.text.isNotEmpty) ...[
+                                GestureDetector(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    _searchController.clear();
+                                  },
+                                  child: const Icon(Icons.close_rounded,
+                                      size: 18, color: AppColors.inkFaint),
+                                ),
+                                const SizedBox(width: 8),
                               ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          GestureDetector(
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              context.push('/profile');
-                            },
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: const Icon(
-                                Icons.person_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Interactive Search bar
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 14,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.search_rounded,
-                                color: AppColors.teal, size: 22),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                textInputAction: TextInputAction.search,
-                                onSubmitted: _onSearch,
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  color: AppColors.ink,
-                                ),
-                                decoration: InputDecoration(
-                                  isDense: true,
-                                  filled: false,
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(vertical: 10),
-                                  hintText:
-                                      'Search electrician, plumber, cleaner...',
-                                  hintStyle: GoogleFonts.inter(
-                                    fontSize: 14,
-                                    color: AppColors.inkMuted,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (_searchController.text.isNotEmpty)
                               GestureDetector(
-                                onTap: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                                child: const Icon(Icons.close_rounded,
-                                    size: 18, color: AppColors.inkLight),
-                              ),
-                            GestureDetector(
-                              onTap: () => _onSearch(_searchController.text),
-                              child: Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: AppColors.teal.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                                onTap: () => _onSearch(_searchController.text),
+                                child: Container(
+                                  padding: const EdgeInsets.all(7),
+                                  decoration: BoxDecoration(
+                                    gradient: AppColors.primaryGradient,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.arrow_forward_rounded,
+                                      size: 16, color: Colors.white),
                                 ),
-                                child: const Icon(Icons.arrow_forward_rounded,
-                                    size: 16, color: AppColors.teal),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                            ],
+                          ),
+                        )
+                            .animate()
+                            .fade(duration: 350.ms)
+                            .slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
 
-          // Bento Section: Large Hero Emergency Dispatch Card
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-              child: AnimatedBuilder(
-                animation: _pulseAnimation,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: _pulseAnimation.value,
-                    child: child,
-                  );
-                },
+            // ── Non-blocking approximate-location banner ──
+            if (isApproximate)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: AppColors.warning.withValues(alpha: 0.30)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded,
+                            size: 17, color: AppColors.warning),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Using approximate location — tap to refine',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.warning,
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => LocationService.showLocationPickerModal(
+                              context, ref),
+                          child: Text(
+                            'Update',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.warning,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                    .animate()
+                    .fade(duration: 300.ms)
+                    .slideY(begin: -0.2, end: 0),
+              ),
+
+            // ── Emergency fast-track ──
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: GestureDetector(
                   onTap: () {
                     HapticFeedback.mediumImpact();
                     ref.read(selectedServiceProvider.notifier).state = null;
                     ref.read(workerSearchQueryProvider.notifier).state = null;
+                    ref.read(emergencyModeProvider.notifier).state = true;
                     context.push('/workers?emergency=true');
                   },
                   child: Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      gradient: AppColors.orangeGradient,
+                      gradient: AppColors.primaryGradient,
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.orange.withValues(alpha: 0.38),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
+                          color: AppColors.primary.withValues(alpha: 0.35),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(11),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.25),
+                            color: Colors.white.withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: const Icon(Icons.flash_on_rounded,
-                              color: Colors.white, size: 28),
+                              color: AppColors.amber, size: 26),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -323,414 +371,631 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               Text(
                                 'Emergency Fast-Track Dispatch',
                                 style: GoogleFonts.sora(
-                                  fontSize: 16,
+                                  fontSize: 15,
                                   fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                'Nearest verified trade partner arrives in ~5 mins',
+                                'Nearest verified partner prioritised first',
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
-                                  color: Colors.white.withValues(alpha: 0.92),
+                                  color: Colors.white.withValues(alpha: 0.85),
                                 ),
                               ),
                             ],
                           ),
                         ),
                         const Icon(Icons.arrow_forward_rounded,
-                            color: Colors.white, size: 22),
+                            color: Colors.white, size: 20),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0),
-          ),
+              )
+                  .animate(delay: 80.ms)
+                  .fade(duration: 380.ms)
+                  .slideY(begin: 0.15, end: 0, curve: Curves.easeOutCubic),
+            ),
 
-          // Bento Medium Supporting Cells (2 Columns)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(
-                children: [
-                  // Left Cell: Nearby Workers
-                  Expanded(
-                    child: GestureDetector(
+            // ── Category chips (horizontal scroll w/ icons) ──
+            SliverToBoxAdapter(
+              child: SectionHeader(title: 'Services', subtitle: '8 trades available'),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 92,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: MockDataService.serviceCategories.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    final cat = MockDataService.serviceCategories[index];
+                    final mesh =
+                        AppColors.meshGradients[index % AppColors.meshGradients.length];
+                    return GestureDetector(
                       onTap: () {
                         HapticFeedback.lightImpact();
-                        context.push('/workers');
+                        ref.read(selectedServiceProvider.notifier).state =
+                            cat['id'];
+                        ref.read(workerSearchQueryProvider.notifier).state =
+                            null;
+                        ref.read(emergencyModeProvider.notifier).state = false;
+                        context.push('/workers?service=${cat['id']}');
                       },
                       child: Container(
-                        padding: const EdgeInsets.all(14),
+                        width: 86,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
                           color: AppColors.surface,
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(color: AppColors.border),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.03),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.teal.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.people_alt_rounded,
-                                      color: AppColors.teal, size: 18),
-                                ),
-                                const CooperativeBadge(isCompact: true),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              '15+ Verified',
-                              style: GoogleFonts.sora(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.ink,
-                              ),
-                            ),
-                            Text(
-                              'Active in your zone',
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                color: AppColors.inkLight,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-
-                  // Right Cell: 5% Welfare Fund Trust
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppColors.border),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.03),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: AppColors.gold.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.volunteer_activism_rounded,
-                                color: Color(0xFFB45309), size: 18),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            '5% Welfare Pool',
-                            style: GoogleFonts.sora(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          Text(
-                            'Worker medical aid',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: AppColors.inkLight,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
-          ),
-
-          // Section title: Services
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Trade Services',
-                    style: GoogleFonts.sora(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                  Text(
-                    '8 Categories Available',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.inkLight,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Service category grid
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 4,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 0.85,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final category = MockDataService.serviceCategories[index];
-                  return ServiceCategoryTile(
-                    label: category['label']!,
-                    icon: ServiceCategoryTile.getIconForService(
-                        category['id']!),
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      ref.read(selectedServiceProvider.notifier).state =
-                          category['id'];
-                      ref.read(workerSearchQueryProvider.notifier).state = null;
-                      context.push('/workers?service=${category['id']}');
-                    },
-                  );
-                },
-                childCount: MockDataService.serviceCategories.length,
-              ),
-            ),
-          ),
-
-          // Section: Cooperative Federation Trust Banner
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.teal.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: AppColors.teal.withValues(alpha: 0.2),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: const BoxDecoration(
-                        color: AppColors.teal,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.security_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                'Cooperative Governance',
-                                style: GoogleFonts.sora(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.teal,
-                                ),
-                              ),
-                              const CooperativeBadge(isCompact: true),
-                            ],
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'NCCT affiliated • 100% of welfare levies fund partner healthcare & pensions',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: AppColors.inkLight,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Recent bookings header
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Recent Bookings',
-                    style: GoogleFonts.sora(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      context.push('/history');
-                    },
-                    child: Text(
-                      'View All',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.teal,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Recent bookings horizontal list
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 156,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: MockDataService.getMockBookingHistory().take(3).length,
-                itemBuilder: (context, index) {
-                  final booking =
-                      MockDataService.getMockBookingHistory().take(3).toList()[index];
-                  return Container(
-                    width: 220,
-                    margin: const EdgeInsets.only(right: 12, bottom: 8),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              booking.serviceType.toUpperCase(),
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.teal,
-                              ),
-                            ),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                              width: 38,
+                              height: 38,
                               decoration: BoxDecoration(
-                                color: AppColors.teal.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                booking.status.name.toUpperCase(),
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.teal,
+                                borderRadius: BorderRadius.circular(12),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: mesh,
                                 ),
                               ),
+                              child: Icon(
+                                ServiceCategoryIcons.forId(cat['id']!),
+                                size: 20,
+                                color: Colors.white,
+                              ),
                             ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                            const SizedBox(height: 6),
                             Text(
-                              booking.workerName ?? 'Assigned Partner',
-                              style: GoogleFonts.sora(
-                                fontSize: 14,
+                              cat['label']!,
+                              style: GoogleFonts.inter(
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.ink,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            Text(
-                              '₹${booking.price.toStringAsFixed(0)} • Delhi Central',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: AppColors.inkLight,
-                              ),
-                            ),
                           ],
                         ),
-                        Text(
-                          'Tap to view tracking',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.orange,
-                          ),
-                        ),
-                      ],
+                      )
+                          .animate(delay: (100 + index * 40).ms)
+                          .fade(duration: 280.ms)
+                          .slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // ── Top-rated workers carousel ──
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                title: 'Top Rated Near You',
+                actionLabel: 'See all',
+                onAction: () {
+                  ref.read(selectedServiceProvider.notifier).state = null;
+                  ref.read(workerSearchQueryProvider.notifier).state = null;
+                  ref.read(emergencyModeProvider.notifier).state = false;
+                  context.push('/workers');
+                },
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: workersAsync.when(
+                loading: () => SizedBox(
+                  height: 168,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: 4,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (_, __) => SkeletonBox(
+                      width: 230,
+                      height: 160,
+                      borderRadius: 20,
+                    ),
+                  ),
+                ),
+                error: (err, _) => _workersErrorBanner(err),
+                data: (workers) {
+                  final featured =
+                      workers.where((w) => w.isOnline).take(6).toList();
+                  if (featured.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return SizedBox(
+                    height: 172,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: featured.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final w = featured[index];
+                        return _FeaturedWorkerCard(
+                          name: w.name,
+                          rating: w.ratingAvg,
+                          jobs: w.totalRatings,
+                          distance: w.distanceFormatted,
+                          skill: w.skills.isNotEmpty ? w.skills.first : 'worker',
+                          verified: w.isVerified,
+                          heroTag: 'worker-avatar-${w.id}',
+                          onTap: () => context.push('/workers/${w.id}'),
+                        )
+                            .animate(delay: (index * 60).ms)
+                            .fade(duration: 320.ms)
+                            .slideY(begin: 0.15, end: 0, curve: Curves.easeOutCubic);
+                      },
                     ),
                   );
                 },
               ),
             ),
-          ),
 
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 40),
-          ),
-        ],
+            // ── Nearby preview mini-map ──
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: GestureDetector(
+                  onTap: () => context.push('/workers'),
+                  child: Container(
+                    height: 170,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.border),
+                      boxShadow: AppColors.softShadow,
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        FlutterMap(
+                          options: MapOptions(
+                            initialCenter: activeLocation.coordinates,
+                            initialZoom: 13.2,
+                            interactionOptions: const InteractionOptions(
+                              flags: InteractiveFlag.none,
+                            ),
+                          ),
+                          children: [
+                            AppTiles.voyager(),
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  point: activeLocation.coordinates,
+                                  width: 44,
+                                  height: 44,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: AppColors.warning,
+                                      border: Border.all(
+                                          color: Colors.white, width: 2.5),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.warning
+                                              .withValues(alpha: 0.45),
+                                          blurRadius: 10,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                        Icons.person_pin_circle_rounded,
+                                        color: Colors.white,
+                                        size: 22),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            AppTiles.attribution(),
+                          ],
+                        ),
+                        Positioned(
+                          bottom: 10,
+                          left: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.95),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.12),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.map_rounded,
+                                    size: 15, color: AppColors.primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Explore nearby partners',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.ink,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.arrow_forward_rounded,
+                                    size: 13, color: AppColors.primary),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+                .animate(delay: 120.ms)
+                .fade(duration: 380.ms)
+                .slideY(begin: 0.15, end: 0),
+            ),
+
+            // ── Recent bookings ──
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                title: 'Recent Bookings',
+                actionLabel: 'View all',
+                onAction: () => context.push('/history'),
+              ),
+            ),
+            historyAsync.when(
+              loading: () => SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    SkeletonBox(height: 84, borderRadius: 20),
+                    const SizedBox(height: 10),
+                    SkeletonBox(height: 84, borderRadius: 20),
+                  ],
+                ),
+              ),
+              error: (err, _) => SliverToBoxAdapter(
+                child: _historyErrorBanner(err, () {
+                  ref.invalidate(bookingHistoryProvider);
+                }),
+              ),
+              data: (bookings) {
+                final recent = recentBookings;
+                if (recent.isEmpty) {
+                  return const SliverToBoxAdapter(
+                    child: SizedBox.shrink(),
+                  );
+                }
+                return SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final booking = recent[index];
+                        return _RecentBookingTile(
+                          booking: booking,
+                          onTap: () => context
+                              .push('/booking/${booking.id}/tracking'),
+                        )
+                            .animate(delay: (index * 60).ms)
+                            .fade(duration: 320.ms)
+                            .slideY(begin: 0.15, end: 0);
+                      },
+                      childCount: recent.length,
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            const SliverToBoxAdapter(child: SizedBox(height: 48)),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _workersErrorBanner(Object err) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.danger.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.danger.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.cloud_off_rounded,
+                size: 20, color: AppColors.danger),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "Couldn't load nearby workers.",
+                style: GoogleFonts.inter(
+                    fontSize: 12.5, color: AppColors.ink),
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.invalidate(nearbyWorkersProvider),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _historyErrorBanner(Object err, VoidCallback retry) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.danger.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.danger.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.history_toggle_off_rounded,
+                size: 20, color: AppColors.danger),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "Couldn't load your bookings.",
+                style: GoogleFonts.inter(fontSize: 12.5, color: AppColors.ink),
+              ),
+            ),
+            TextButton(onPressed: retry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact Hero-ready featured worker card.
+class _FeaturedWorkerCard extends StatelessWidget {
+  final String name;
+  final double rating;
+  final int jobs;
+  final String distance;
+  final String skill;
+  final bool verified;
+  final String heroTag;
+  final VoidCallback onTap;
+
+  const _FeaturedWorkerCard({
+    required this.name,
+    required this.rating,
+    required this.jobs,
+    required this.distance,
+    required this.skill,
+    required this.verified,
+    required this.heroTag,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = name.trim().split(RegExp(r'\s+')).map((e) => e[0]).take(2).join().toUpperCase();
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 232,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppColors.softShadow,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Hero(
+                  tag: heroTag,
+                  child: Container(
+                    width: 46,
+                    height: 46,
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: AppColors.primaryGradient,
+                    ),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.surface,
+                      ),
+                      child: Center(
+                        child: Text(
+                          initials,
+                          style: GoogleFonts.sora(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: GoogleFonts.sora(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '${skill[0].toUpperCase()}${skill.substring(1)}${verified ? " • Verified" : ""}',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppColors.inkSoft,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                const Icon(Icons.star_rounded,
+                    size: 15, color: AppColors.warning),
+                const SizedBox(width: 3),
+                Text(
+                  rating.toStringAsFixed(1),
+                  style: GoogleFonts.sora(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                Text(' ($jobs jobs)',
+                    style: GoogleFonts.inter(
+                        fontSize: 11, color: AppColors.inkSoft)),
+                const Spacer(),
+                if (distance.isNotEmpty)
+                  Text(
+                    distance,
+                    style: GoogleFonts.inter(
+                        fontSize: 11, color: AppColors.primary,
+                        fontWeight: FontWeight.w600),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Recent booking row with StatusChip + tracking navigation.
+class _RecentBookingTile extends StatelessWidget {
+  final Booking booking;
+  final VoidCallback onTap;
+
+  const _RecentBookingTile({required this.booking, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF101828).withValues(alpha: 0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                gradient: LinearGradient(colors: [
+                  AppColors.primary.withValues(alpha: 0.12),
+                  AppColors.primaryLight.withValues(alpha: 0.18),
+                ]),
+              ),
+              child: Icon(
+                ServiceCategoryIcons.forId(booking.serviceType),
+                color: AppColors.primary,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    booking.workerName ??
+                        booking.serviceType[0].toUpperCase() +
+                            booking.serviceType.substring(1),
+                    style: GoogleFonts.sora(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '₹${booking.price.toStringAsFixed(0)} • Tap to view tracking',
+                    style: GoogleFonts.inter(
+                        fontSize: 11.5, color: AppColors.inkSoft),
+                  ),
+                ],
+              ),
+            ),
+            StatusChip(status: booking.status, dense: true),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.inkFaint, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared service icon mapping.
+class ServiceCategoryIcons {
+  ServiceCategoryIcons._();
+
+  static IconData forId(String id) {
+    return switch (id) {
+      'electrician' => Icons.bolt_rounded,
+      'plumber' => Icons.plumbing_rounded,
+      'carpenter' => Icons.carpenter_rounded,
+      'painter' => Icons.format_paint_rounded,
+      'cleaner' => Icons.cleaning_services_rounded,
+      'caregiver' => Icons.health_and_safety_rounded,
+      'driver' => Icons.directions_car_rounded,
+      'gardener' => Icons.yard_rounded,
+      _ => Icons.handyman_rounded,
+    };
   }
 }

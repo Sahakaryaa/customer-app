@@ -1,99 +1,157 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/primary_button.dart';
+import '../../models/booking.dart';
+import '../../providers/booking_provider.dart';
+import '../../widgets/app_button.dart';
+import '../../widgets/count_up_text.dart';
 
-/// Transparent UPI-style payment screen with live cooperative breakdown.
-class PaymentScreen extends StatefulWidget {
+/// Payment — clean amount hero with CountUpText, UPI/Cash method selector
+/// cards and an animated success checkmark that routes onward.
+/// Money rules per contract: base price flat + one 5% welfare note.
+class PaymentScreen extends ConsumerStatefulWidget {
   final String bookingId;
 
   const PaymentScreen({super.key, required this.bookingId});
 
   @override
-  State<PaymentScreen> createState() => _PaymentScreenState();
+  ConsumerState<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _PaymentScreenState extends State<PaymentScreen>
-    with SingleTickerProviderStateMixin {
+class _Method {
+  final String id;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  const _Method(this.id, this.title, this.subtitle, this.icon);
+}
+
+class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   bool _isPaying = false;
   bool _isPaid = false;
-  late AnimationController _animController;
-  late Animation<double> _scaleAnim;
+  String _selectedMethodId = 'upi';
 
-  // Transparent pricing model: Base ₹450 + 5% Ops + 5% Welfare Fund
-  final double _baseAmount = 450.0;
-  double get _platformFee => _baseAmount * 0.05;
-  double get _welfareFund => _baseAmount * 0.05;
-  double get _totalAmount => _baseAmount + _platformFee + _welfareFund;
+  static const _methods = [
+    _Method('upi', 'UPI', 'Instant & secure', Icons.account_balance_wallet_rounded),
+    _Method('card', 'Card', 'Visa / Mastercard / RuPay', Icons.credit_card_rounded),
+    _Method('cash', 'Cash after service', 'Pay your partner directly',
+        Icons.payments_rounded),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _scaleAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.elasticOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _animController.dispose();
-    super.dispose();
+    // Reflect the created booking; fetch if deep-linked without state.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (ref.read(activeBookingProvider)?.id != widget.bookingId) {
+        try {
+          await ref.read(bookingDetailProvider(widget.bookingId).future);
+        } catch (_) {
+          // surfaced via provider error state
+        }
+      }
+    });
   }
 
   Future<void> _processPayment() async {
     HapticFeedback.mediumImpact();
     setState(() => _isPaying = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
+    // Local settlement only — no fake endpoints beyond the contract.
+    await Future.delayed(const Duration(milliseconds: 1300));
     HapticFeedback.heavyImpact();
-    if (mounted) {
-      setState(() {
-        _isPaying = false;
-        _isPaid = true;
-      });
-      _animController.forward();
-    }
+    if (!mounted) return;
+    setState(() {
+      _isPaying = false;
+      _isPaid = true;
+    });
+    // Route onwards after the celebration settles.
+    Future.delayed(const Duration(milliseconds: 1600), () {
+      if (!mounted) return;
+      final booking = ref.read(activeBookingProvider);
+      final isActive = booking?.isActive ?? true;
+      if (isActive) {
+        context.go('/booking/${widget.bookingId}/tracking');
+      } else if (booking?.rateable ?? false) {
+        context.go('/booking/${widget.bookingId}/rate');
+      } else {
+        context.go('/home');
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final bookingAsync = ref.watch(activeBookingProvider) != null &&
+            ref.watch(activeBookingProvider)!.id == widget.bookingId
+        ? AsyncValue.data(ref.watch(activeBookingProvider)!)
+        : ref.watch(bookingDetailProvider(widget.bookingId));
+
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: Text('Payment & Settlement',
-            style: GoogleFonts.sora(fontWeight: FontWeight.w600)),
+        title:
+            Text('Payment', style: GoogleFonts.sora(fontWeight: FontWeight.w700)),
       ),
-      body: _isPaid ? _buildSuccessView() : _buildPaymentView(),
+      body: bookingAsync.when(
+        loading: () => const Center(
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(
+                strokeWidth: 3, color: AppColors.primary),
+          ),
+        ),
+        error: (err, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.cloud_off_rounded,
+                    size: 44, color: AppColors.danger),
+                const SizedBox(height: 14),
+                Text(
+                  'Could not load booking details.',
+                  style: GoogleFonts.sora(
+                      fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                AppButton(
+                  label: 'Go Home',
+                  onPressed: () => context.go('/home'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        data: (booking) => _isPaid
+            ? _buildSuccessView(booking)
+            : _buildPaymentView(booking),
+      ),
     );
   }
 
-  Widget _buildPaymentView() {
+  Widget _buildPaymentView(Booking booking) {
+    final price = booking.price;
+    final welfare = price * 0.05;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 8),
-
-          // Amount & Transparent Receipt Display
+          // ── Amount hero ──
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(26),
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppColors.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              boxShadow: AppColors.softShadow,
             ),
             child: Column(
               children: [
@@ -101,183 +159,228 @@ class _PaymentScreenState extends State<PaymentScreen>
                   'Total Amount Payable',
                   style: GoogleFonts.inter(
                     fontSize: 13,
-                    color: AppColors.inkLight,
+                    color: AppColors.inkSoft,
                     fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                CountUpText(
+                  price,
+                  prefix: '₹',
+                  style: GoogleFonts.sora(
+                    fontSize: 46,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -1,
+                    color: AppColors.primary,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '₹${_totalAmount.toStringAsFixed(0)}',
-                  style: GoogleFonts.sora(
-                    fontSize: 42,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.teal,
-                  ),
+                  '${_capitalize(booking.serviceType)} service${booking.workerName != null ? ' • ${booking.workerName}' : ''}',
+                  style: GoogleFonts.inter(
+                      fontSize: 12.5, color: AppColors.inkFaint),
                 ),
-                const SizedBox(height: 16),
-                const Divider(),
-                const SizedBox(height: 12),
-
-                // Transparent Breakdown
-                _buildBreakdown('Worker Service Charge (90%)',
-                    '₹${_baseAmount.toStringAsFixed(0)}',
-                    isBold: true),
-                const SizedBox(height: 8),
-                _buildBreakdown('Cooperative Platform Ops (5%)',
-                    '₹${_platformFee.toStringAsFixed(1)}',
-                    color: AppColors.inkLight),
-                const SizedBox(height: 8),
-                _buildBreakdown('Social Security Fund (5%)',
-                    '₹${_welfareFund.toStringAsFixed(1)}',
-                    color: AppColors.teal, isBold: true),
-              ],
-            ),
-          ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.05, end: 0),
-          const SizedBox(height: 16),
-
-          // Fair-Wage Comparison Callout
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.teal.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.teal.withValues(alpha: 0.2)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.shield_outlined,
-                    color: AppColors.teal, size: 22),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '100% of the ₹${_baseAmount.toStringAsFixed(0)} service amount goes directly to your service partner with ₹${_welfareFund.toStringAsFixed(1)} credited to their pension/medical fund.',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: AppColors.teal,
-                      height: 1.4,
-                      fontWeight: FontWeight.w500,
+                const SizedBox(height: 18),
+                Divider(color: AppColors.border.withValues(alpha: 0.8)),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.volunteer_activism_rounded,
+                        size: 17, color: AppColors.success),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '5% (₹${welfare.toStringAsFixed(0)}) supports worker welfare fund',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.success,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
-          ),
+          ).animate().fade(duration: 350.ms).slideY(begin: 0.06, end: 0),
+
           const SizedBox(height: 20),
 
-          // Mock UPI Payment Method Selector
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.teal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+          // ── Method selector cards ──
+          ...List.generate(_methods.length, (i) {
+            final m = _methods[i];
+            final selected = m.id == _selectedMethodId;
+            return GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _selectedMethodId = m.id);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: selected ? AppColors.primary : AppColors.border,
+                    width: selected ? 2 : 1,
                   ),
-                  child: const Icon(Icons.account_balance_rounded,
-                      color: AppColors.teal, size: 24),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.14),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ]
+                      : null,
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('UPI Direct Settlement',
-                          style: GoogleFonts.sora(
-                              fontSize: 14, fontWeight: FontWeight.w700)),
-                      Text('instant transfer to cooperative escrow',
-                          style: GoogleFonts.inter(
-                              fontSize: 12, color: AppColors.inkLight)),
-                    ],
-                  ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(9),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:
+                          Icon(m.icon, color: AppColors.primary, size: 21),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(m.title,
+                              style: GoogleFonts.sora(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700)),
+                          Text(m.subtitle,
+                              style: GoogleFonts.inter(
+                                  fontSize: 11.5,
+                                  color: AppColors.inkSoft)),
+                        ],
+                      ),
+                    ),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.border,
+                          width: 2,
+                        ),
+                        color: selected ? AppColors.primary : Colors.white,
+                      ),
+                      child: selected
+                          ? const Icon(Icons.check_rounded,
+                              size: 13, color: Colors.white)
+                          : null,
+                    ),
+                  ],
                 ),
-                const Icon(Icons.check_circle_rounded,
-                    color: AppColors.teal, size: 22),
-              ],
-            ),
-          ),
+              ),
+            )
+                .animate(delay: (100 + i * 70).ms)
+                .fade(duration: 300.ms)
+                .slideY(begin: 0.12, end: 0);
+          }),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
 
-          // Pay button
-          PrimaryButton(
-            label: 'Pay ₹${_totalAmount.toStringAsFixed(0)} via UPI',
+          AppButton(
+            label:
+                'Pay ₹${price.toStringAsFixed(0)}${_methodSuffix(_selectedMethodId)}',
             isLoading: _isPaying,
             icon: Icons.lock_outline_rounded,
             onPressed: _processPayment,
+          ).animate(delay: 320.ms).fade(duration: 300.ms),
+
+          const SizedBox(height: 12),
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shield_rounded,
+                    size: 14, color: AppColors.inkFaint),
+                const SizedBox(width: 6),
+                Text(
+                  'Cooperative escrow protected settlement',
+                  style:
+                      GoogleFonts.inter(fontSize: 11.5, color: AppColors.inkFaint),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSuccessView() {
+  String _methodSuffix(String id) => id == 'cash' ? ' (on completion)' : '';
+
+  Widget _buildSuccessView(Booking booking) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ScaleTransition(
-              scale: _scaleAnim,
-              child: Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.success, width: 3),
-                ),
-                child: const Icon(Icons.check_rounded,
-                    size: 56, color: AppColors.success),
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(colors: [
+                  AppColors.success.withValues(alpha: 0.16),
+                  AppColors.success.withValues(alpha: 0.08),
+                ]),
+                border: Border.all(color: AppColors.success, width: 3),
               ),
-            ),
-            const SizedBox(height: 24),
+              child: const Icon(Icons.check_rounded,
+                  size: 56, color: AppColors.success),
+            )
+                .animate()
+                .scale(
+                  begin: const Offset(0.3, 0.3),
+                  end: const Offset(1, 1),
+                  curve: Curves.elasticOut,
+                  duration: 750.ms,
+                )
+                .then(delay: 200.ms)
+                .shimmer(duration: 900.ms,
+                    color: AppColors.success.withValues(alpha: 0.4)),
+            const SizedBox(height: 26),
             Text('Payment Successful!',
                 style: GoogleFonts.sora(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                )),
-            const SizedBox(height: 8),
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5)),
+            const SizedBox(height: 10),
             Text(
-              '₹${_totalAmount.toStringAsFixed(0)} settled instantly.\n₹${_baseAmount.toStringAsFixed(0)} transferred to worker escrow.\n+₹${_welfareFund.toStringAsFixed(1)} added to Federation Welfare Fund.',
+              '₹${booking.price.toStringAsFixed(0)} settled via cooperative escrow.\n'
+              '₹${(booking.price * 0.05).toStringAsFixed(1)} credited to the welfare fund.',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
-                fontSize: 13,
-                color: AppColors.inkLight,
-                height: 1.5,
-              ),
+                  fontSize: 13.5, color: AppColors.inkSoft, height: 1.55),
+            ).animate(delay: 150.ms).fade(duration: 350.ms),
+            const SizedBox(height: 30),
+            const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(strokeWidth: 2.4,
+                  color: AppColors.primary),
             ),
-            const SizedBox(height: 36),
-            PrimaryButton(
-              label: 'Rate Service Experience',
-              icon: Icons.star_rounded,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                context.go('/booking/${widget.bookingId}/rate');
-              },
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                context.go('/home');
-              },
-              child: Text(
-                'Back to Home',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.inkMuted,
-                ),
-              ),
+            const SizedBox(height: 10),
+            Text(
+              'Opening live tracking…',
+              style: GoogleFonts.inter(fontSize: 12.5,
+                  fontWeight: FontWeight.w600, color: AppColors.primary),
             ),
           ],
         ),
@@ -285,24 +388,8 @@ class _PaymentScreenState extends State<PaymentScreen>
     );
   }
 
-  Widget _buildBreakdown(String label, String value,
-      {Color? color, bool isBold = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label,
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              color: color ?? AppColors.inkLight,
-              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
-            )),
-        Text(value,
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
-              color: color ?? AppColors.ink,
-            )),
-      ],
-    );
+  String _capitalize(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
   }
 }

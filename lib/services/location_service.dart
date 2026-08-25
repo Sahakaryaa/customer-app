@@ -7,7 +7,10 @@ import 'package:latlong2/latlong.dart';
 import '../models/location_data.dart';
 import '../theme/app_colors.dart';
 
-/// Active selected user location provider across the app.
+/// Whether the current location is an approximate fallback (not live GPS).
+final locationIsApproximateProvider = StateProvider<bool>((ref) => false);
+
+/// Active selected user location across the app.
 final userLocationStateProvider =
     StateNotifierProvider<UserLocationNotifier, CooperativeLocation>((ref) {
   return UserLocationNotifier();
@@ -37,72 +40,252 @@ final locationServiceProvider = Provider<LocationService>((ref) {
   return LocationService(ref);
 });
 
-/// Wraps Geolocator with fast timeouts, predefined cluster fallbacks, and dialog UI.
+enum LocationSource { liveGps, lastKnown, cachedDefault }
+
+/// Result of the resolution chain.
+class LocationResult {
+  final LatLng coords;
+  final LocationSource source;
+  final String areaLabel;
+
+  const LocationResult({
+    required this.coords,
+    required this.source,
+    required this.areaLabel,
+  });
+
+  bool get isApproximate => source != LocationSource.liveGps;
+
+  String get sourceLabel => switch (source) {
+        LocationSource.liveGps => 'Live GPS',
+        LocationSource.lastKnown => 'Last known position',
+        LocationSource.cachedDefault => 'Approximate (Delhi NCR)',
+      };
+}
+
+/// Wraps Geolocator with the DESIGN_SPEC chain:
+/// WhenInUse permission (+ friendly explainer sheet) → live GPS →
+/// lastKnownPosition → cached default Delhi NCR center (28.61, 77.21)
+/// with a non-blocking "approximate location" banner.
 class LocationService {
   final Ref? ref;
+  bool _explainerShownThisSession = false;
 
   LocationService([this.ref]);
 
-  static const defaultLocation = LatLng(28.6315, 77.2167);
+  /// Cached default: Delhi NCR center per spec.
+  static const defaultLocation = LatLng(28.61, 77.21);
 
-  /// Check and request location permissions with a fast 2.5s timeout.
-  Future<LatLng> getCurrentLocation({bool fallbackToDefault = true}) async {
+  /// Full chain. Never throws when [fallbackToDefault] is true.
+  Future<LocationResult> resolveLocation({
+    bool fallbackToDefault = true,
+    bool showExplainer = true,
+    BuildContext? context,
+  }) async {
+    LocationPermission permission = LocationPermission.denied;
+
+    // 1) Permission — with a one-time friendly explainer bottom sheet.
     try {
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled()
-          .timeout(const Duration(seconds: 2), onTimeout: () => false);
-
-      if (!serviceEnabled) {
-        return fallbackToDefault ? defaultLocation : throw const LocationServiceException('GPS disabled');
+      permission = await Geolocator.checkPermission();
+      if ((permission == LocationPermission.denied ||
+              permission == LocationPermission.deniedForever) &&
+          showExplainer &&
+          !_explainerShownThisSession &&
+          context != null &&
+          context.mounted) {
+        await _showExplainerSheet(context);
+        _explainerShownThisSession = true;
       }
-
-      LocationPermission permission = await Geolocator.checkPermission()
-          .timeout(const Duration(seconds: 2), onTimeout: () => LocationPermission.denied);
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission()
-            .timeout(const Duration(seconds: 2), onTimeout: () => LocationPermission.denied);
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        permission = await Geolocator.requestPermission();
       }
+    } catch (_) {
+      permission = LocationPermission.denied;
+    }
 
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        return fallbackToDefault ? defaultLocation : throw const LocationServiceException('Permission denied');
-      }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return _fallback();
+    }
 
+    // 2) Location service enabled?
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return _fallback();
+    } catch (_) {
+      return _fallback();
+    }
+
+    // 3) Live GPS attempt.
+    try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 3),
-        ),
-      ).timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => Position(
-          latitude: defaultLocation.latitude,
-          longitude: defaultLocation.longitude,
-          timestamp: DateTime.now(),
-          accuracy: 100,
-          altitude: 0,
-          altitudeAccuracy: 0,
-          heading: 0,
-          headingAccuracy: 0,
-          speed: 0,
-          speedAccuracy: 0,
+          timeLimit: Duration(seconds: 5),
         ),
       );
-
-      return LatLng(position.latitude, position.longitude);
+      return _result(position.latitude, position.longitude,
+          LocationSource.liveGps);
     } catch (_) {
-      if (fallbackToDefault) return defaultLocation;
-      throw const LocationServiceException('Unable to acquire GPS');
+      // fall through
     }
+
+    // 4) Last known position.
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        return _result(last.latitude, last.longitude, LocationSource.lastKnown);
+      }
+    } catch (_) {
+      // fall through
+    }
+
+    // 5) Cached default Delhi NCR center.
+    return _fallback();
   }
 
-  /// Formats coordinate pairs into clean readable location labels.
+  LocationResult _fallback() {
+    final result = LocationResult(
+      coords: defaultLocation,
+      source: LocationSource.cachedDefault,
+      areaLabel: getApproximateArea(defaultLocation),
+    );
+    return result;
+  }
+
+  LocationResult _result(double lat, double lng, LocationSource source) {
+    final coords = LatLng(lat, lng);
+    return LocationResult(
+      coords: coords,
+      source: source,
+      areaLabel: getApproximateArea(coords),
+    );
+  }
+
+  /// Resolve AND push into app-wide state, updating the approximate banner flag.
+  Future<LocationResult> resolveAndApply(WidgetRef ref,
+      {BuildContext? context}) async {
+    final result = await resolveLocation(context: context);
+    ref.read(userLocationStateProvider.notifier).setCustomCoordinates(
+          result.coords,
+          result.areaLabel,
+          'Live GPS (${result.coords.latitude.toStringAsFixed(3)}, '
+              '${result.coords.longitude.toStringAsFixed(3)})',
+        );
+    ref.read(locationIsApproximateProvider.notifier).state =
+        result.isApproximate;
+    return result;
+  }
+
+  /// Nearest-cluster area resolution — deterministic, no unreachable branches.
+  /// Replaces the buggy ordered-if chain where the Saket rule swallowed
+  /// Gurugram coordinates before the Gurugram rule could fire.
   String getApproximateArea(LatLng coords) {
-    if (coords.latitude > 28.66) return 'Civil Lines, North Delhi';
-    if (coords.latitude < 28.54 && coords.longitude < 77.25) return 'Saket, South Delhi';
-    if (coords.longitude > 77.30) return 'Sector 18, Noida';
-    if (coords.longitude < 77.12) return 'Karol Bagh, West Delhi';
-    if (coords.latitude < 28.51 && coords.longitude < 77.10) return 'Cyber Hub, Gurugram';
-    return 'Connaught Place, Central Delhi';
+    CooperativeLocation nearest = CooperativeLocation.clusters.first;
+    double best = double.infinity;
+    for (final c in CooperativeLocation.clusters) {
+      final d = _squaredDistanceKm(coords, c.coordinates);
+      if (d < best) {
+        best = d;
+        nearest = c;
+      }
+    }
+    return '${nearest.areaName}, ${nearest.subDistrict}';
+  }
+
+  double _squaredDistanceKm(LatLng a, LatLng b) {
+    final dLat = a.latitude - b.latitude;
+    final dLng = (a.longitude - b.longitude) * 0.86; // cos(~28°) correction
+    return dLat * dLat + dLng * dLng;
+  }
+
+  /// One-time friendly permission explainer (rounded top-28 modal per spec).
+  Future<void> _showExplainerSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 18),
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(colors: [
+                  AppColors.primary.withValues(alpha: 0.15),
+                  AppColors.primaryLight.withValues(alpha: 0.22),
+                ]),
+              ),
+              child:
+                  const Icon(Icons.my_location_rounded, size: 34, color: AppColors.primary),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Find workers near you',
+              style: GoogleFonts.sora(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'SahaKarya uses your location only to show verified workers '
+              'and service partners nearby. You can keep using the app with '
+              'an approximate Delhi NCR location if you prefer.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: AppColors.inkSoft,
+                height: 1.55,
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  'Got it',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Shows the interactive cooperative region switcher modal.
@@ -118,7 +301,8 @@ class LocationService {
 
 class _LocationPickerSheet extends ConsumerStatefulWidget {
   @override
-  ConsumerState<_LocationPickerSheet> createState() => _LocationPickerSheetState();
+  ConsumerState<_LocationPickerSheet> createState() =>
+      _LocationPickerSheetState();
 }
 
 class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
@@ -126,28 +310,37 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
 
   Future<void> _detectGps() async {
     setState(() => _isDetectingGps = true);
+    final messenger = ScaffoldMessenger.of(context); // capture BEFORE pop
     try {
       final locService = ref.read(locationServiceProvider);
-      final coords = await locService.getCurrentLocation();
-      final area = locService.getApproximateArea(coords);
+      final result = await locService.resolveLocation(showExplainer: false);
       ref.read(userLocationStateProvider.notifier).setCustomCoordinates(
-            coords,
-            area,
-            'Live GPS Detection (${coords.latitude.toStringAsFixed(3)}, ${coords.longitude.toStringAsFixed(3)})',
+            result.coords,
+            result.areaLabel,
+            '${result.sourceLabel} '
+                '(${result.coords.latitude.toStringAsFixed(3)}, '
+                '${result.coords.longitude.toStringAsFixed(3)})',
           );
+      ref.read(locationIsApproximateProvider.notifier).state =
+          result.isApproximate;
       if (mounted) {
         setState(() => _isDetectingGps = false);
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        // Use the pre-pop captured messenger → no crash after pop.
+        messenger.showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.my_location_rounded, color: Colors.white, size: 18),
+                const Icon(Icons.my_location_rounded,
+                    color: Colors.white, size: 18),
                 const SizedBox(width: 8),
-                Text('Location updated to $area', style: GoogleFonts.inter()),
+                Expanded(
+                  child: Text('Location updated to ${result.areaLabel}',
+                      style: GoogleFonts.inter()),
+                ),
               ],
             ),
-            backgroundColor: AppColors.teal,
+            backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -167,24 +360,22 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 12, bottom: 8),
               width: 44,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.divider,
+                color: AppColors.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             child: Row(
@@ -192,10 +383,11 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.teal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.location_on_rounded, color: AppColors.teal, size: 20),
+                  child: const Icon(Icons.location_on_rounded,
+                      color: AppColors.primary, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -204,11 +396,15 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                     children: [
                       Text(
                         'Select Service Location',
-                        style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.ink),
+                        style: GoogleFonts.sora(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink),
                       ),
                       Text(
                         'Cooperative federation hubs across Delhi NCR',
-                        style: GoogleFonts.inter(fontSize: 12, color: AppColors.inkLight),
+                        style: GoogleFonts.inter(
+                            fontSize: 12, color: AppColors.inkSoft),
                       ),
                     ],
                   ),
@@ -216,37 +412,40 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
               ],
             ),
           ),
-
-          // Live GPS Auto-detect Button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             child: InkWell(
               onTap: _detectGps,
               borderRadius: BorderRadius.circular(14),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.teal.withValues(alpha: 0.12), AppColors.teal.withValues(alpha: 0.05)],
-                  ),
+                  gradient: LinearGradient(colors: [
+                    AppColors.primary.withValues(alpha: 0.10),
+                    AppColors.primaryLight.withValues(alpha: 0.06),
+                  ]),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.teal.withValues(alpha: 0.3)),
+                  border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.30)),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: const BoxDecoration(
-                        color: AppColors.teal,
+                        color: AppColors.primary,
                         shape: BoxShape.circle,
                       ),
                       child: _isDetectingGps
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
                             )
-                          : const Icon(Icons.my_location_rounded, color: Colors.white, size: 16),
+                          : const Icon(Icons.my_location_rounded,
+                              color: Colors.white, size: 16),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -258,29 +457,29 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                             style: GoogleFonts.inter(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: AppColors.teal,
+                              color: AppColors.primary,
                             ),
                           ),
                           Text(
                             'Auto-detect coordinates and nearest cooperative hub',
-                            style: GoogleFonts.inter(fontSize: 11, color: AppColors.inkLight),
+                            style: GoogleFonts.inter(
+                                fontSize: 11, color: AppColors.inkSoft),
                           ),
                         ],
                       ),
                     ),
-                    const Icon(Icons.chevron_right_rounded, color: AppColors.teal, size: 20),
+                    const Icon(Icons.chevron_right_rounded,
+                        color: AppColors.primary, size: 20),
                   ],
                 ),
               ),
             ),
           ),
-
           const SizedBox(height: 10),
           const Divider(height: 1),
-
-          // Cluster List
-          Expanded(
+          Flexible(
             child: ListView.separated(
+              shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               itemCount: CooperativeLocation.clusters.length,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -298,10 +497,12 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppColors.teal.withValues(alpha: 0.08) : AppColors.surface,
+                      color: isSelected
+                          ? AppColors.primary.withValues(alpha: 0.07)
+                          : AppColors.surface,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: isSelected ? AppColors.teal : AppColors.border,
+                        color: isSelected ? AppColors.primary : AppColors.border,
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -311,13 +512,14 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? AppColors.teal
-                                : AppColors.teal.withValues(alpha: 0.08),
+                                ? AppColors.primary
+                                : AppColors.primary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
                             Icons.apartment_rounded,
-                            color: isSelected ? Colors.white : AppColors.teal,
+                            color:
+                                isSelected ? Colors.white : AppColors.primary,
                             size: 20,
                           ),
                         ),
@@ -328,36 +530,43 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                             children: [
                               Row(
                                 children: [
-                                  Text(
-                                    cluster.areaName,
-                                    style: GoogleFonts.sora(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: isSelected ? AppColors.teal : AppColors.ink,
+                                  Flexible(
+                                    child: Text(
+                                      cluster.areaName,
+                                      style: GoogleFonts.sora(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: isSelected
+                                            ? AppColors.primary
+                                            : AppColors.ink,
+                                      ),
                                     ),
                                   ),
                                   if (isSelected) ...[
                                     const SizedBox(width: 6),
-                                    const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 16),
+                                    const Icon(Icons.check_circle_rounded,
+                                        color: AppColors.primary, size: 16),
                                   ],
                                 ],
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 cluster.subDistrict,
-                                style: GoogleFonts.inter(fontSize: 12, color: AppColors.inkLight),
+                                style: GoogleFonts.inter(
+                                    fontSize: 12, color: AppColors.inkSoft),
                               ),
                               const SizedBox(height: 4),
                               Row(
                                 children: [
-                                  const Icon(Icons.verified_user_rounded, color: AppColors.gold, size: 13),
+                                  const Icon(Icons.verified_user_rounded,
+                                      color: AppColors.warning, size: 13),
                                   const SizedBox(width: 4),
                                   Text(
                                     '${cluster.activeWorkers} Verified Workers Nearby',
                                     style: GoogleFonts.inter(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
-                                      color: AppColors.teal,
+                                      color: AppColors.primary,
                                     ),
                                   ),
                                 ],
@@ -365,7 +574,8 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                             ],
                           ),
                         ),
-                        const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.inkMuted),
+                        const Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: AppColors.inkFaint),
                       ],
                     ),
                   ),
@@ -387,3 +597,4 @@ class LocationServiceException implements Exception {
   @override
   String toString() => message;
 }
+

@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/app_button.dart';
+import '../../widgets/avatar_badge.dart';
 
-/// User profile screen — settings, language toggle, logout.
+/// User profile — gradient header card, menu, logout.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
@@ -17,124 +20,118 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: Text('Profile',
-            style: GoogleFonts.sora(fontWeight: FontWeight.w600)),
+        title:
+            Text('Profile', style: GoogleFonts.sora(fontWeight: FontWeight.w700)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Profile card
+            // Profile hero card
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: AppColors.teal.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Center(
-                      child: Text(
-                        _getInitials(user?.name ?? 'U'),
-                        style: GoogleFonts.sora(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.teal,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    user?.name ?? 'User',
-                    style: GoogleFonts.sora(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    user?.phone ?? 'Phone',
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      color: AppColors.inkLight,
-                    ),
+                gradient: AppColors.darkGradient,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.darkStart.withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-
-            // Menu items
-            _buildMenuItem(
-              context,
-              icon: Icons.history_rounded,
-              label: 'Booking History',
-              onTap: () => context.push('/history'),
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.location_on_outlined,
-              label: 'Saved Addresses',
-              onTap: () {},
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.language_rounded,
-              label: 'Language',
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.teal.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('English',
-                    style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: AppColors.teal,
-                        fontWeight: FontWeight.w600)),
+              child: Column(
+                children: [
+                  AvatarBadge(name: user?.name ?? 'U', size: 76),
+                  const SizedBox(height: 14),
+                  Text(
+                    user?.name ?? 'Customer',
+                    style: GoogleFonts.sora(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: -0.4),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(user?.phone ?? '',
+                      style: GoogleFonts.inter(
+                          fontSize: 13.5, color: Colors.white70)),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.amber.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: AppColors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Text('Cooperative Member',
+                        style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.amber)),
+                  ),
+                ],
               ),
-              onTap: () {
-                // Language toggle would go here
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Language switch coming soon!')),
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.help_outline_rounded,
-              label: 'Help & Support',
-              onTap: () {},
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.info_outline_rounded,
-              label: 'About',
-              subtitle: 'SahaKarya (सहकार्य) v1.0 — Cooperative Gig Platform',
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
-            _buildMenuItem(
-              context,
-              icon: Icons.logout_rounded,
+            ).animate().fade(duration: 320.ms).slideY(begin: 0.08, end: 0),
+
+            const SizedBox(height: 18),
+
+            _menuItem(context,
+                icon: Icons.history_rounded,
+                label: 'Booking History',
+                onTap: () => context.push('/history')),
+            _menuItem(context,
+                icon: Icons.location_on_outlined,
+                label: 'Saved Addresses',
+                subtitle: 'Coming soon',
+                onTap: () {}),
+            _menuItem(context,
+                icon: Icons.language_rounded,
+                label: 'Language',
+                trailing: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text('English',
+                      style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600)),
+                ),
+                onTap: () {}),
+            _menuItem(context,
+                icon: Icons.help_outline_rounded,
+                label: 'Help & Support',
+                onTap: () {}),
+            _menuItem(context,
+                icon: Icons.info_outline_rounded,
+                label: 'About',
+                subtitle: 'SahaKarya v1.0 — Cooperative Gig Platform',
+                onTap: () {}),
+
+            const SizedBox(height: 14),
+            AppButton(
               label: 'Logout',
-              color: AppColors.error,
-              onTap: () {
+              isOutlined: true,
+              outlineColor: AppColors.danger,
+              icon: Icons.logout_rounded,
+              onPressed: () {
                 showDialog(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: const Text('Logout?'),
-                    content: const Text('Are you sure you want to logout?'),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24)),
+                    title: Text('Logout?',
+                        style: GoogleFonts.sora(fontSize: 17)),
+                    content: Text('Are you sure you want to logout?',
+                        style: GoogleFonts.inter(fontSize: 13.5)),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.of(ctx).pop(),
@@ -145,6 +142,10 @@ class ProfileScreen extends ConsumerWidget {
                           Navigator.of(ctx).pop();
                           ref.read(authProvider.notifier).logout();
                         },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.danger,
+                          foregroundColor: Colors.white,
+                        ),
                         child: const Text('Logout'),
                       ),
                     ],
@@ -158,53 +159,51 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildMenuItem(
+  Widget _menuItem(
     BuildContext context, {
     required IconData icon,
     required String label,
     String? subtitle,
     Widget? trailing,
-    Color? color,
     required VoidCallback onTap,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           side: const BorderSide(color: AppColors.border),
         ),
         tileColor: AppColors.surface,
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: (color ?? AppColors.teal).withValues(alpha: 0.1),
+            color: AppColors.primary.withValues(alpha: 0.09),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(icon, color: color ?? AppColors.teal, size: 22),
+          child:
+              Icon(icon, color: AppColors.primary, size: 20),
         ),
         title: Text(label,
             style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: color ?? AppColors.ink)),
+                color: AppColors.ink)),
         subtitle: subtitle != null
             ? Text(subtitle,
                 style: GoogleFonts.inter(
-                    fontSize: 12, color: AppColors.inkLight))
+                    fontSize: 12, color: AppColors.inkSoft))
             : null,
         trailing: trailing ??
-            Icon(Icons.chevron_right_rounded,
-                color: AppColors.inkMuted, size: 22),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.inkFaint, size: 22),
       ),
-    );
-  }
-
-  String _getInitials(String name) {
-    final parts = name.split(' ');
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return name[0].toUpperCase();
+    )
+        .animate(delay: Duration(milliseconds: 60))
+        .fade(duration: 300.ms)
+        .slideY(begin: 0.08, end: 0);
   }
 }

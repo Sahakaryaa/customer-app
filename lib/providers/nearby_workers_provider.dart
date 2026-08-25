@@ -12,7 +12,26 @@ final selectedServiceProvider = StateProvider<String?>((ref) => null);
 /// Search query string for filtering workers by name, skill, or federation.
 final workerSearchQueryProvider = StateProvider<String?>((ref) => null);
 
-/// Nearby workers provider — fetches workers based on location, service type, and search query.
+/// Sort/filter mode: emergency dispatch prioritizes closest + online first.
+final emergencyModeProvider = StateProvider<bool>((ref) => false);
+
+List<Worker> _applyEmergencyRanking(List<Worker> workers) {
+  final sorted = [...workers];
+  sorted.sort((a, b) {
+    // Online first
+    if (a.isOnline != b.isOnline) return a.isOnline ? -1 : 1;
+    // Then nearest
+    final da = a.distanceMeters ?? double.infinity;
+    final db = b.distanceMeters ?? double.infinity;
+    if ((da - db).abs() > 0.5) return da.compareTo(db);
+    // Then best rated
+    return b.ratingAvg.compareTo(a.ratingAvg);
+  });
+  return sorted;
+}
+
+/// Nearby workers provider — fetches workers based on location, service type,
+/// and search query.
 final nearbyWorkersProvider =
     FutureProvider.family<List<Worker>, LatLng>((ref, location) async {
   final serviceType = ref.watch(selectedServiceProvider);
@@ -43,21 +62,37 @@ final nearbyWorkersProvider =
     }).toList();
   }
 
+  if (ref.watch(emergencyModeProvider)) {
+    workers = _applyEmergencyRanking(workers);
+  } else {
+    // Default: best-rated first.
+    workers = [...workers]..sort((a, b) => b.ratingAvg.compareTo(a.ratingAvg));
+  }
+
   return workers;
 });
 
-/// Single worker profile provider.
+/// Single worker profile provider. Returns null when the worker does not
+/// exist — empty-safe, never throws StateError on an empty list.
 final workerProfileProvider =
-    FutureProvider.family<Worker, String>((ref, workerId) async {
+    FutureProvider.family<Worker?, String>((ref, workerId) async {
   if (useMockData) {
     await Future.delayed(const Duration(milliseconds: 400));
     final workers = MockDataService.getMockWorkers();
-    return workers.firstWhere(
-      (w) => w.id == workerId,
-      orElse: () => workers.first,
-    );
+    Worker? match;
+    for (final w in workers) {
+      if (w.id == workerId) {
+        match = w;
+        break;
+      }
+    }
+    return match; // null when not found — caller renders EmptyState
   }
 
   final api = ref.read(apiClientProvider);
-  return api.getWorkerProfile(workerId);
+  try {
+    return await api.getWorkerProfile(workerId); // GET /workers/{id}
+  } catch (_) {
+    return null;
+  }
 });

@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_colors.dart';
+import '../../models/booking.dart';
 import '../../providers/booking_provider.dart';
-import '../../widgets/service_category_tile.dart';
+import '../../widgets/app_snack_bar.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/skeleton_box.dart';
+import '../../widgets/status_chip.dart';
 
-/// Booking history — list of past bookings with status pills.
+/// Booking history — grouped by date with StatusChips; tap routes to
+/// tracking / rating depending on state. Designed EmptyState when none.
 class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
@@ -17,152 +24,249 @@ class HistoryScreen extends ConsumerWidget {
       backgroundColor: AppColors.bg,
       appBar: AppBar(
         title: Text('Booking History',
-            style: GoogleFonts.sora(fontWeight: FontWeight.w600)),
+            style: GoogleFonts.sora(fontWeight: FontWeight.w700)),
       ),
       body: historyAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text('Error: $err')),
+        loading: () => ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            SkeletonBox(height: 84, borderRadius: 20),
+            const SizedBox(height: 10),
+            SkeletonBox(height: 84, borderRadius: 20),
+            const SizedBox(height: 10),
+            SkeletonBox(height: 84, borderRadius: 20),
+          ],
+        ),
+        error: (err, _) => EmptyState(
+          icon: Icons.cloud_off_rounded,
+          title: 'Could not load history',
+          subtitle:
+              'We had trouble reaching your bookings. Check your connection and retry.',
+          actionLabel: 'Retry',
+          onAction: () => ref.invalidate(bookingHistoryProvider),
+        ),
         data: (bookings) {
           if (bookings.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history_rounded,
-                      size: 56, color: AppColors.inkMuted),
-                  const SizedBox(height: 16),
-                  Text('No bookings yet',
-                      style: GoogleFonts.sora(
-                          fontSize: 18, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Text('Your completed bookings will appear here',
-                      style: GoogleFonts.inter(color: AppColors.inkLight)),
-                ],
-              ),
+            return EmptyState(
+              icon: Icons.receipt_long_rounded,
+              title: 'No bookings yet',
+              subtitle:
+                  'Book your first cooperative service and it will show up here.',
+              actionLabel: 'Find a worker',
+              onAction: () => context.go('/workers'),
             );
           }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: bookings.length,
-            itemBuilder: (context, index) {
-              final booking = bookings[index];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.teal.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        ServiceCategoryTile.getIconForService(
-                            booking.serviceType),
-                        color: AppColors.teal,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _capitalizeFirst(booking.serviceType),
-                            style: GoogleFonts.inter(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (booking.workerName != null)
-                            Text(
-                              booking.workerName!,
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: AppColors.inkLight,
-                              ),
-                            ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDate(booking.createdAt),
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: AppColors.inkMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '₹${booking.price.toStringAsFixed(0)}',
-                          style: GoogleFonts.sora(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.teal,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor(booking.status.value)
-                                .withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            booking.status.label,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: _getStatusColor(booking.status.value),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
+          final groups = _groupByDate(bookings);
+
+          return RefreshIndicator(
+            color: AppColors.primary,
+            backgroundColor: Colors.white,
+            onRefresh: () async => ref.invalidate(bookingHistoryProvider),
+            child: ListView.builder(
+              physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics()),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: _flatCount(groups),
+              itemBuilder: (context, index) =>
+                  _buildFlatItem(context, ref, groups, index)
+                      .animate(delay: Duration(milliseconds: 50 * index.clamp(0, 14)))
+                      .fade(duration: 300.ms)
+                      .slideY(begin: 0.12, end: 0),
+            ),
           );
         },
       ),
     );
   }
 
-  Color _getStatusColor(String status) {
-    return switch (status) {
-      'completed' || 'rated' => AppColors.success,
-      'in_progress' => AppColors.orange,
-      'requested' => AppColors.gold,
-      'matched' => AppColors.teal,
-      _ => AppColors.inkMuted,
-    };
+  // ── Grouping helpers ──
+
+  List<MapEntry<String, List<Booking>>> _groupByDate(List<Booking> bookings) {
+    final map = <String, List<Booking>>{};
+    for (final b in bookings) {
+      map.putIfAbsent(_dateLabel(b.createdAt), () => []).add(b);
+    }
+    return map.entries.toList();
   }
 
-  String _formatDate(DateTime dt) {
+  int _flatCount(List<MapEntry<String, List<Booking>>> groups) {
+    var n = 0;
+    for (final g in groups) {
+      n += 1 + g.value.length;
+    }
+    return n;
+  }
+
+  Widget _buildFlatItem(BuildContext context, WidgetRef ref,
+      List<MapEntry<String, List<Booking>>> groups, int index) {
+    var cursor = index;
+    for (final g in groups) {
+      if (cursor == 0) return _dateHeader(g.key);
+      cursor -= 1;
+      if (cursor < g.value.length) {
+        final booking = g.value[cursor];
+        return _BookingTile(
+          booking: booking,
+          onTap: () => _openBooking(context, booking),
+        );
+      }
+      cursor -= g.value.length;
+    }
+    return const SizedBox.shrink();
+  }
+
+  void _openBooking(BuildContext context, Booking booking) {
+    if (booking.rateable) {
+      context.push('/booking/${booking.id}/rate');
+      return;
+    }
+    if (booking.isActive || booking.status == BookingStatus.completed) {
+      context.push('/booking/${booking.id}/tracking');
+      return;
+    }
+    AppSnackBar.show(
+      context,
+      switch (booking.status) {
+        BookingStatus.declined => 'This booking was declined by the partner.',
+        BookingStatus.cancelled => 'This booking was cancelled.',
+        _ => 'Booking ${booking.status.label.toLowerCase()}.',
+      },
+      type: SnackType.info,
+    );
+  }
+
+  String _dateLabel(DateTime dt) {
     final now = DateTime.now();
-    final diff = now.difference(dt).inDays;
-    if (diff == 0) return 'Today';
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(dt.year, dt.month, dt.day);
+    final diff = today.difference(that).inDays;
+    if (diff <= 0) return 'Today';
     if (diff == 1) return 'Yesterday';
     if (diff < 7) return '$diff days ago';
     return '${dt.day}/${dt.month}/${dt.year}';
   }
 
-  String _capitalizeFirst(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1);
+  Widget _dateHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+      child: Row(
+        children: [
+          Text(label,
+              style: GoogleFonts.sora(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.inkSoft)),
+          const SizedBox(width: 10),
+          Expanded(child: Divider(color: AppColors.border)),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookingTile extends StatelessWidget {
+  final Booking booking;
+  final VoidCallback onTap;
+
+  const _BookingTile({required this.booking, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF101828).withValues(alpha: 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                gradient: LinearGradient(colors: [
+                  AppColors.primary.withValues(alpha: 0.11),
+                  AppColors.primaryLight.withValues(alpha: 0.16),
+                ]),
+              ),
+              child: Icon(
+                switch (booking.serviceType) {
+                  'electrician' => Icons.bolt_rounded,
+                  'plumber' => Icons.plumbing_rounded,
+                  'carpenter' => Icons.carpenter_rounded,
+                  'painter' => Icons.format_paint_rounded,
+                  'cleaner' => Icons.cleaning_services_rounded,
+                  'caregiver' => Icons.health_and_safety_rounded,
+                  'driver' => Icons.directions_car_rounded,
+                  'gardener' => Icons.yard_rounded,
+                  _ => Icons.handyman_rounded,
+                },
+                color: AppColors.primary,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    booking.workerName ??
+                        booking.serviceType[0].toUpperCase() +
+                            booking.serviceType.substring(1),
+                    style: GoogleFonts.sora(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    booking.address?.isNotEmpty == true
+                        ? booking.address!
+                        : '${booking.createdAt.day}/${booking.createdAt.month} · '
+                            '#${booking.id.length > 6 ? booking.id.substring(0, 6) : booking.id}',
+                    style: GoogleFonts.inter(
+                        fontSize: 11.5, color: AppColors.inkSoft),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₹${booking.price.toStringAsFixed(0)}',
+                  style: GoogleFonts.sora(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      color: AppColors.primary),
+                ),
+                const SizedBox(height: 5),
+                StatusChip(status: booking.status, dense: true),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -1,11 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
 
-/// Glassmorphism 2.0 card implementing selective depth with BackdropFilter.
-/// Follows 08-flutter-immersive-ui-skill.md guidelines:
-/// - Static blur sigma (sigmaX: 16, sigmaY: 16)
-/// - High contrast borders and subtle translucent fill
-/// - Accessible over maps, gradients, and photographic covers
+/// Frosted glass card — white .72 overlay + BackdropFilter blur 14,
+/// used sparingly over imagery/gradients per DESIGN_SPEC.
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -21,7 +19,7 @@ class GlassCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(16),
     this.borderRadius = 20,
     this.tintColor,
-    this.opacity = 0.85,
+    this.opacity = 0.72,
     this.border,
     this.onTap,
   });
@@ -33,7 +31,7 @@ class GlassCard extends StatelessWidget {
     final content = ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
@@ -41,16 +39,10 @@ class GlassCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
             border: border ??
                 Border.all(
-                  color: Colors.white.withValues(alpha: 0.35),
+                  color: Colors.white.withValues(alpha: 0.45),
                   width: 1.2,
                 ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            boxShadow: AppColors.softShadow,
           ),
           child: child,
         ),
@@ -58,10 +50,7 @@ class GlassCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: content,
-      );
+      return GestureDetector(onTap: onTap, child: content);
     }
 
     return content;

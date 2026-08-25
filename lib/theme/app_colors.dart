@@ -1,48 +1,88 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens from the shared cooperative platform palette.
-/// Teal = institutional trust, Orange = action/CTA, Gold = achievements/ratings.
+/// SahaKarya "Luxe" design tokens (customer app) — see docs/DESIGN_SPEC.md.
+/// Primary = Indigo/Violet gradient; Amber accents for CTAs; zero Material blue.
 class AppColors {
   AppColors._();
 
-  // Primary palette
-  static const Color teal = Color(0xFF1B4B43);
-  static const Color tealLight = Color(0xFF2A6B5F);
-  static const Color tealDark = Color(0xFF0F3028);
-
-  static const Color orange = Color(0xFFFF6B35);
-  static const Color orangeLight = Color(0xFFFF8A5C);
-  static const Color orangeDark = Color(0xFFE55A25);
-
-  static const Color gold = Color(0xFFFFC145);
-  static const Color goldLight = Color(0xFFFFD476);
-  static const Color goldDark = Color(0xFFE5A830);
-
-  // Neutrals
-  static const Color bg = Color(0xFFF7F3E9);
+  // ── Core palette ──
+  static const Color bg = Color(0xFFF6F7FB);
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color ink = Color(0xFF1A1A1A);
-  static const Color inkLight = Color(0xFF6B6B6B);
-  static const Color inkMuted = Color(0xFF9E9E9E);
-  static const Color border = Color(0xFFE8E4DA);
-  static const Color divider = Color(0xFFF0ECE2);
+  static const Color surfaceAlt = Color(0xFFEEF0F7);
+
+  static const Color ink = Color(0xFF101828);
+  static const Color inkSoft = Color(0xFF667085);
+  static const Color inkFaint = Color(0xFF98A2B3);
+
+  // Primary indigo → gradient [#6A5AE0, #8E7CF0]
+  static const Color primary = Color(0xFF5B5FE9);
+  static const Color primaryDeep = Color(0xFF6A5AE0);
+  static const Color primaryLight = Color(0xFF8E7CF0);
+
+  // Amber CTA accent
+  static const Color amber = Color(0xFFFFB020);
+  static const Color amberSoft = Color(0xFFFFC85C);
 
   // Semantic
-  static const Color success = Color(0xFF2ECC71);
-  static const Color error = Color(0xFFE74C3C);
-  static const Color warning = Color(0xFFF39C12);
-  static const Color info = Color(0xFF3498DB);
+  static const Color success = Color(0xFF16A34A);
+  static const Color warning = Color(0xFFF59E0B);
+  static const Color danger = Color(0xFFEF4444);
+  static const Color info = Color(0xFF0EA5E9);
 
-  // Gradients
-  static const LinearGradient tealGradient = LinearGradient(
+  // Dark hero surfaces (splash, tracking hero)
+  static const Color darkStart = Color(0xFF0B1220);
+  static const Color darkEnd = Color(0xFF111A2C);
+
+  // Hairlines
+  static const Color border = Color(0xFFE7EAF3);
+
+  // ── Legacy aliases (existing widgets keep compiling; brand now indigo/amber) ──
+  static const Color teal = primary;
+  static const Color tealLight = primaryLight;
+  static const Color orange = amber;
+  static const Color gold = warning;
+  static const Color error = danger;
+  static const Color inkLight = inkSoft;
+  static const Color inkMuted = inkFaint;
+  static const Color divider = surfaceAlt;
+
+  // ── Gradients (135°) ──
+  static const LinearGradient primaryGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [teal, tealLight],
+    colors: [primaryDeep, primaryLight],
   );
 
-  static const LinearGradient orangeGradient = LinearGradient(
+  static const LinearGradient darkGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [orange, orangeLight],
+    colors: [darkStart, darkEnd],
   );
+
+  static const LinearGradient amberGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [amber, amberSoft],
+  );
+
+  /// Mesh-gradient palette for service icon tiles.
+  static const List<List<Color>> meshGradients = [
+    [Color(0xFF6A5AE0), Color(0xFF9B8CFF)],
+    [Color(0xFF0EA5E9), Color(0xFF67E8F9)],
+    [Color(0xFFF59E0B), Color(0xFFFCD34D)],
+    [Color(0xFFEC4899), Color(0xFFF9A8D4)],
+    [Color(0xFF10B981), Color(0xFF6EE7B7)],
+    [Color(0xFF8B5CF6), Color(0xFFC4B5FD)],
+    [Color(0xFFEF4444), Color(0xFFFCA5A5)],
+    [Color(0xFF14B8A6), Color(0xFF99F6E4)],
+  ];
+
+  /// Soft shadow token from the spec.
+  static List<BoxShadow> get softShadow => [
+        BoxShadow(
+          color: const Color(0xFF101828).withValues(alpha: 0.08),
+          blurRadius: 24,
+          offset: const Offset(0, 8),
+        ),
+      ];
 }

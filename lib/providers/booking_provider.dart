@@ -1,78 +1,97 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/booking.dart';
+import '../models/worker.dart';
 import '../services/api_client.dart';
-import '../services/booking_socket.dart';
 import '../services/mock_data_service.dart';
 import 'auth_provider.dart';
 
-/// Live booking status stream — uses WebSocket in real mode, simulated in mock mode.
-final bookingStatusProvider =
-    StreamProvider.family<BookingStatus, String>((ref, bookingId) {
-  if (useMockData) {
-    // Simulate booking status progression for demo
-    return _simulateBookingProgress();
-  }
-
-  final socket = ref.read(bookingSocketProvider);
-  ref.onDispose(() => socket.disconnect());
-  return socket.connect(bookingId);
-});
-
-/// Simulates a booking going through all status stages for demo purposes.
-Stream<BookingStatus> _simulateBookingProgress() async* {
-  yield BookingStatus.requested;
-  await Future.delayed(const Duration(seconds: 3));
-  yield BookingStatus.matched;
-  await Future.delayed(const Duration(seconds: 5));
-  yield BookingStatus.inProgress;
-  await Future.delayed(const Duration(seconds: 8));
-  yield BookingStatus.completed;
-}
-
-/// Create a new booking.
-final createBookingProvider = FutureProvider.family
-    .autoDispose<Booking, Map<String, dynamic>>((ref, params) async {
-  if (useMockData) {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return Booking(
-      id: 'b_${DateTime.now().millisecondsSinceEpoch}',
-      customerId: 'demo_customer',
-      workerId: params['worker_id'] as String?,
-      workerName: params['worker_name'] as String?,
-      serviceType: params['service_type'] as String,
-      status: BookingStatus.requested,
-      latitude: params['lat'] as double,
-      longitude: params['lng'] as double,
-      scheduledTime: params['scheduled_time'] as DateTime?,
-      isEmergency: params['is_emergency'] as bool? ?? false,
-      price: params['price'] as double? ?? 0.0,
-      createdAt: DateTime.now(),
-    );
-  }
-
-  final api = ref.read(apiClientProvider);
-  return api.createBooking(
-    serviceType: params['service_type'] as String,
-    lat: params['lat'] as double,
-    lng: params['lng'] as double,
-    scheduledTime: params['scheduled_time'] as DateTime?,
-    isEmergency: params['is_emergency'] as bool? ?? false,
-  );
-});
-
-/// Booking history provider.
+/// Booking history provider (GET /users/me/bookings).
 final bookingHistoryProvider = FutureProvider<List<Booking>>((ref) async {
   if (useMockData) {
     await Future.delayed(const Duration(milliseconds: 500));
     return MockDataService.getMockBookingHistory();
   }
-
   final api = ref.read(apiClientProvider);
   return api.getBookingHistory();
 });
 
-/// Currently active booking (in-progress tracking).
+/// Single booking fetch (GET /bookings/{id}).
+final bookingDetailProvider =
+    FutureProvider.family.autoDispose<Booking, String>((ref, bookingId) async {
+  final api = ref.read(apiClientProvider);
+  return api.getBooking(bookingId);
+});
+
+/// The booking currently flowing through create → pay → rate.
 final activeBookingProvider = StateProvider<Booking?>((ref) => null);
+
+/// Parameters for creating a real booking (flat payload per contract).
+class NewBookingParams {
+  final String serviceType;
+  final double price;
+  final double lat;
+  final double lng;
+  final String? description;
+  final String? address;
+
+  const NewBookingParams({
+    required this.serviceType,
+    required this.price,
+    required this.lat,
+    required this.lng,
+    this.description,
+    this.address,
+  });
+}
+
+/// Creation state machine — never silently succeeds; errors are surfaced.
+class BookingCreationNotifier extends StateNotifier<AsyncValue<Booking?>> {
+  BookingCreationNotifier(this._api) : super(const AsyncData(null));
+
+  final ApiClient _api;
+
+  Future<bool> create(NewBookingParams params) async {
+    state = const AsyncLoading();
+    try {
+      final booking = await _api.createBooking(
+        serviceType: params.serviceType,
+        price: params.price,
+        lat: params.lat,
+        lng: params.lng,
+        description: params.description,
+        address: params.address,
+      );
+      state = AsyncData(booking);
+      return true;
+    } catch (e) {
+      state = AsyncError(e, StackTrace.current);
+      return false;
+    } finally {
+      // keep last state; screens read it via valueOrNull / hasError
+    }
+  }
+
+  void reset() => state = const AsyncData(null);
+}
+
+final bookingCreationProvider =
+    StateNotifierProvider<BookingCreationNotifier, AsyncValue<Booking?>>(
+        (ref) {
+  return BookingCreationNotifier(ref.read(apiClientProvider));
+});
+
+/// Live tracking status stream for a booking — Socket.IO `status_update`
+/// events with automatic polling fallback handled by [BookingRealtimeService].
+/// (See services/booking_socket.dart.)
+///
+/// Kept as a thin alias so screens can watch statuses reactively.
+final workerSuggestionProvider =
+    FutureProvider.family<Worker?, String>((ref, workerId) async {
+  try {
+    final api = ref.read(apiClientProvider);
+    return await api.getWorkerProfile(workerId);
+  } catch (_) {
+    return null;
+  }
+});

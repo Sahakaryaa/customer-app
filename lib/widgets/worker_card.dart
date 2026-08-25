@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/worker.dart';
 import '../theme/app_colors.dart';
-import 'cooperative_badge.dart';
-import 'package:shimmer/shimmer.dart';
 
-/// Worker list item card — shows photo, name, skills, rating, distance,
-/// and the Cooperative Badge for verified workers with smooth press feedback and Hero transitions.
+/// Worker list item card — Hero-ready avatar, skills, rating, distance,
+/// verification + online status, press feedback and staggered entrance.
 class WorkerCard extends StatefulWidget {
   final Worker worker;
+  final int index;
   final VoidCallback? onTap;
 
   const WorkerCard({
     super.key,
     required this.worker,
+    this.index = 0,
     this.onTap,
   });
 
@@ -24,6 +25,14 @@ class WorkerCard extends StatefulWidget {
 
 class _WorkerCardState extends State<WorkerCard> {
   bool _isPressed = false;
+
+  String get _initials {
+    final parts = widget.worker.name.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return widget.worker.name.isNotEmpty
+        ? widget.worker.name[0].toUpperCase()
+        : 'W';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,45 +46,40 @@ class _WorkerCardState extends State<WorkerCard> {
       },
       child: AnimatedScale(
         scale: _isPressed ? 0.98 : 1.0,
-        duration: const Duration(milliseconds: 150),
+        duration: const Duration(milliseconds: 120),
         curve: Curves.easeOut,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _isPressed ? AppColors.teal : AppColors.border,
-              width: _isPressed ? 1.5 : 1.0,
-            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.border),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: _isPressed ? 0.08 : 0.04),
-                blurRadius: _isPressed ? 12 : 8,
-                offset: const Offset(0, 2),
+                color: const Color(0xFF101828)
+                    .withValues(alpha: _isPressed ? 0.10 : 0.05),
+                blurRadius: _isPressed ? 20 : 14,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
           child: Row(
             children: [
-              // Hero Worker avatar
               _buildAvatar(),
               const SizedBox(width: 14),
 
-              // Worker details
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Name & verification badge
                     Row(
                       children: [
                         Expanded(
                           child: Text(
                             widget.worker.name,
-                            style: const TextStyle(
-                              fontSize: 16,
+                            style: GoogleFonts.sora(
+                              fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: AppColors.ink,
                             ),
@@ -85,102 +89,87 @@ class _WorkerCardState extends State<WorkerCard> {
                         ),
                         if (widget.worker.isVerified) ...[
                           const SizedBox(width: 6),
-                          const CooperativeBadge(compact: true),
+                          Icon(Icons.verified_rounded,
+                              size: 16, color: AppColors.primary),
                         ],
                       ],
                     ),
                     const SizedBox(height: 4),
-
-                    // Primary skill chip
                     Wrap(
-                      spacing: 4,
+                      spacing: 5,
+                      runSpacing: 4,
                       children: widget.worker.skills.take(2).map((skill) {
                         return Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.teal.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(6),
+                            color:
+                                AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             _capitalizeFirst(skill),
-                            style: const TextStyle(
-                              fontSize: 11,
+                            style: GoogleFonts.inter(
+                              fontSize: 10.5,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.teal,
+                              color: AppColors.primary,
                             ),
                           ),
                         );
                       }).toList(),
                     ),
-                    const SizedBox(height: 8),
-
-                    // Rating, jobs count & distance
+                    const SizedBox(height: 7),
                     Row(
                       children: [
-                        // Star rating
-                        const Icon(
-                          Icons.star_rounded,
-                          size: 16,
-                          color: AppColors.gold,
-                        ),
+                        const Icon(Icons.star_rounded,
+                            size: 15, color: AppColors.warning),
                         const SizedBox(width: 3),
                         Text(
                           widget.worker.ratingAvg.toStringAsFixed(1),
-                          style: const TextStyle(
-                            fontSize: 13,
+                          style: GoogleFonts.inter(
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w700,
                             color: AppColors.ink,
                           ),
                         ),
                         Text(
-                          ' (${widget.worker.totalRatings})',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.inkLight,
+                          ' (${widget.worker.totalRatings} jobs)',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: AppColors.inkSoft,
                           ),
                         ),
                         const SizedBox(width: 10),
-
-                        // Distance indicator
-                        const Icon(
-                          Icons.location_on_outlined,
-                          size: 14,
-                          color: AppColors.inkLight,
-                        ),
+                        const Icon(Icons.location_on_outlined,
+                            size: 13, color: AppColors.inkFaint),
                         const SizedBox(width: 2),
                         Text(
                           widget.worker.distanceFormatted.isEmpty
                               ? 'Nearby'
                               : widget.worker.distanceFormatted,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.inkLight,
-                          ),
+                          style: GoogleFonts.inter(
+                              fontSize: 11, color: AppColors.inkSoft),
                         ),
-
                         const Spacer(),
-
-                        // Availability dot
                         Container(
-                          width: 8,
-                          height: 8,
+                          width: 7,
+                          height: 7,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: widget.worker.isOnline
                                 ? AppColors.success
-                                : AppColors.inkMuted,
+                                : AppColors.inkFaint,
                           ),
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          widget.worker.isOnline ? 'Available' : 'Busy',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                          widget.worker.isOnline ? 'Online' : 'Offline',
+                          style: GoogleFonts.inter(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
                             color: widget.worker.isOnline
                                 ? AppColors.success
-                                : AppColors.inkMuted,
+                                : AppColors.inkFaint,
                           ),
                         ),
                       ],
@@ -189,65 +178,55 @@ class _WorkerCardState extends State<WorkerCard> {
                 ),
               ),
 
-              // Arrow icon
               const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.inkMuted,
-                  size: 24,
-                ),
+                padding: EdgeInsets.only(left: 6),
+                child: Icon(Icons.chevron_right_rounded,
+                    color: AppColors.inkFaint, size: 22),
               ),
             ],
           ),
         ),
       ),
-    ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.05, end: 0);
+    )
+        .animate(delay: Duration(milliseconds: 60 * widget.index.clamp(0, 12)))
+        .fade(duration: 320.ms)
+        .slideY(begin: 0.12, end: 0, curve: Curves.easeOutCubic);
   }
 
   Widget _buildAvatar() {
     return Hero(
       tag: 'worker-avatar-${widget.worker.id}',
       child: Container(
-        width: 56,
-        height: 56,
+        width: 54,
+        height: 54,
+        padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
-          color: AppColors.teal.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: widget.worker.isVerified
-                ? AppColors.teal.withValues(alpha: 0.35)
-                : AppColors.border,
-            width: 2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          shape: BoxShape.circle,
+          gradient: widget.worker.isOnline
+              ? AppColors.primaryGradient
+              : LinearGradient(colors: [
+                  AppColors.inkFaint.withValues(alpha: 0.4),
+                  AppColors.inkFaint.withValues(alpha: 0.25)
+                ]),
         ),
-        child: Center(
-          child: Text(
-            _getInitials(widget.worker.name),
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.teal,
+        child: Container(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.surface,
+          ),
+          child: Center(
+            child: Text(
+              _initials,
+              style: GoogleFonts.sora(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+              ),
             ),
           ),
         ),
       ),
     );
-  }
-
-  String _getInitials(String name) {
-    final parts = name.split(' ');
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return name.isNotEmpty ? name[0].toUpperCase() : 'W';
   }
 
   String _capitalizeFirst(String s) {
@@ -258,59 +237,48 @@ class _WorkerCardState extends State<WorkerCard> {
 
 /// Shimmer skeleton loader for WorkerCard during loading state.
 class WorkerCardSkeleton extends StatelessWidget {
-  const WorkerCardSkeleton({super.key});
+  final int index;
+
+  const WorkerCardSkeleton({super.key, this.index = 0});
 
   @override
   Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey.shade200,
-      highlightColor: Colors.grey.shade50,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 140,
-                    height: 14,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 80,
-                    height: 12,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 180,
-                    height: 12,
-                    color: Colors.white,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
       ),
-    );
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.surfaceAlt,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                    width: 140, height: 13, color: AppColors.surfaceAlt),
+                const SizedBox(height: 9),
+                Container(
+                    width: 90, height: 11, color: AppColors.surfaceAlt),
+                const SizedBox(height: 9),
+                Container(
+                    width: 180, height: 11, color: AppColors.surfaceAlt),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ).animate(delay: Duration(milliseconds: 60 * index)).fade(duration: 250.ms);
   }
 }

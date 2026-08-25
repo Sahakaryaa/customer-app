@@ -36,7 +36,6 @@ dependencies:
 
   # UI components
   cached_network_image: ^3.4.1
-  flutter_rating_bar: ^4.0.1
   shimmer: ^3.0.0
   device_preview: ^1.2.0
   # Animation & Motion
@@ -44,6 +43,7 @@ dependencies:
 
   # Routing
   go_router: ^15.1.2
+  socket_io_client: ^3.1.6
 dev_dependencies:
   flutter_test:
     sdk: flutter
