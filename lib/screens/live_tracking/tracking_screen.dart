@@ -14,6 +14,7 @@ import '../../providers/booking_provider.dart';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
 import '../../services/booking_socket.dart';
+import '../chat/chat_screen.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_snack_bar.dart';
 import '../../widgets/app_tiles.dart';
@@ -67,12 +68,32 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
-    )..repeat();
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _startRealtime());
+  }
+
+  bool _reducedMotion = false;
+  bool _motionChecked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_motionChecked) {
+      _motionChecked = true;
+      // Respect the OS "remove animations" accessibility setting: the
+      // repeating halo pulse only runs when animations are allowed.
+      _reducedMotion =
+          MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+      if (!_reducedMotion) _pulseCtrl.repeat();
+    }
   }
 
   Future<void> _startRealtime() async {
     final rt = ref.read(bookingSocketProvider);
+
+    // Demo-mode convergence target: the customer's actual position, so the
+    // simulated worker approaches THIS location instead of a hardcoded city.
+    rt.setSimulationTarget(_customerLocation);
 
     // Seed from REST first.
     try {
@@ -87,6 +108,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
         }
         _seedTimeline(booking);
       });
+      // Keep the sim target in sync once we know the booked address coords.
+      rt.setSimulationTarget(_customerLocation);
     } catch (_) {
       if (!mounted) return;
       AppSnackBar.show(context, 'Could not refresh booking — retrying live',
@@ -321,6 +344,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                           animation:
                               Listenable.merge([_moveCtrl, _pulseCtrl]),
                           builder: (context, _) {
+                            final pulse = _reducedMotion ? 0.0 : _pulseCtrl.value;
                             return Stack(
                               alignment: Alignment.center,
                               clipBehavior: Clip.none,
@@ -355,15 +379,15 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                                 // Pulsing halo ring (repeating)
                                 Container(
                                   width:
-                                      38 + (26 * _pulseCtrl.value),
+                                      38 + (26 * pulse),
                                   height:
-                                      38 + (26 * _pulseCtrl.value),
+                                      38 + (26 * pulse),
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: AppColors.primaryLight
                                           .withValues(alpha:
-                                              (1 - _pulseCtrl.value) *
+                                              (1 - pulse) *
                                                   0.55),
                                       width: 2,
                                     ),
@@ -442,6 +466,24 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
             ),
           ),
 
+          // ── Recenter control (fits both pins when tracking) ──
+          Align(
+            alignment: const Alignment(1.0, -0.30),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: _circleBtn(Icons.my_location_rounded, () {
+                final center = _hasWorkerPos
+                    ? LatLng(
+                        (_customerLocation.latitude + _workerPos.latitude) / 2,
+                        (_customerLocation.longitude +
+                                _workerPos.longitude) /
+                            2)
+                    : _customerLocation;
+                _mapController.move(center, 14.5);
+              }),
+            ),
+          ).animate().fade(duration: 300.ms),
+
           // ── Slide-up panel ──
           DraggableScrollableSheet(
             initialChildSize: 0.42,
@@ -514,9 +556,25 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                                 outlineColor: AppColors.info,
                                 icon: Icons.chat_bubble_rounded,
                                 height: 46,
-                                onPressed: () => AppSnackBar.show(context,
-                                    'Chat opens after partner accepts',
-                                    type: SnackType.info),
+                                onPressed: () {
+                                  Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => ChatScreen(
+                                      bookingId: widget.bookingId,
+                                      peerName: _booking!.workerName ?? 'Partner',
+                                      senderRole: 'customer',
+                                      transport: SocketChatTransport(
+                                        bookingId: widget.bookingId,
+                                        myRole: 'customer',
+                                        chatStream:
+                                            ref.read(bookingSocketProvider).chatStream,
+                                        sendFn: (text) => ref
+                                            .read(bookingSocketProvider)
+                                            .sendChatMessage(text,
+                                                senderRole: 'customer'),
+                                      ),
+                                    ),
+                                  ));
+                                },
                               ),
                             ),
                           ],

@@ -1,12 +1,30 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/animation.dart' show Curves;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import '../config/service_region.dart';
 import '../models/booking.dart';
 import 'api_client.dart';
+
+/// One chat message exchanged inside a booking room
+/// (customer ↔ worker, mirrored after Uber/Rapido trip chat).
+class ChatMessage {
+  final String bookingId;
+  final String senderRole; // 'customer' | 'worker'
+  final String text;
+  final DateTime? ts;
+
+  const ChatMessage({
+    required this.bookingId,
+    required this.senderRole,
+    required this.text,
+    this.ts,
+  });
+}
 
 /// Realtime status payload per contract:
 /// {booking_id, old_status, new_status, timestamp}
@@ -68,9 +86,16 @@ class BookingRealtimeService {
   final _statusController = StreamController<StatusUpdate>.broadcast();
   final _locationController = StreamController<WorkerPing>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
+  final _chatController = StreamController<ChatMessage>.broadcast();
 
   bool _connected = false;
   String? _activeBookingId;
+
+  /// Demo-mode simulation state (reset per booking).
+  double? _simStartLat;
+  double? _simStartLng;
+  double _simProgress = 0.0;
+  int _simTick = 0;
 
   bool get isConnected => _connected;
   String? get activeBookingId => _activeBookingId;
@@ -80,6 +105,9 @@ class BookingRealtimeService {
 
   /// Emits true/false as socket connection state changes.
   Stream<bool> get connectionStream => _connectionController.stream;
+
+  /// Emits incoming chat messages for the active booking room.
+  Stream<ChatMessage> get chatStream => _chatController.stream;
 
   /// Connect + join the booking room. Safe to call repeatedly.
   void connect(String bookingId) {
@@ -141,6 +169,25 @@ class BookingRealtimeService {
           ts: DateTime.tryParse(json['ts']?.toString() ?? ''),
         ));
       });
+
+      // Customer ↔ worker trip chat, relayed by the backend booking room.
+      _socket!.on('chat_message', (data) {
+        final json = _asMap(data);
+        if (json == null) return;
+        final id = json['booking_id']?.toString();
+        if (id != null && id != bookingId) return;
+        final text = json['message']?.toString() ??
+            json['text']?.toString() ??
+            '';
+        if (text.isEmpty) return;
+        _chatController.add(ChatMessage(
+          bookingId: id ?? bookingId,
+          senderRole: json['sender_role']?.toString() ?? 'worker',
+          text: text,
+          ts: DateTime.tryParse(json['ts']?.toString() ?? '') ??
+              DateTime.now(),
+        ));
+      });
     } catch (_) {
       _setConnected(false);
     }
@@ -152,6 +199,22 @@ class BookingRealtimeService {
   Map<String, dynamic>? _asMap(Object? data) {
     if (data is Map) return Map<String, dynamic>.from(data);
     return null;
+  }
+
+  /// Send a chat message into the active booking room.
+  /// Returns false when the socket is down (caller should fall back to
+  /// the local demo simulation so chat still works offline).
+  bool sendChatMessage(String text, {String senderRole = 'customer'}) {
+    final bookingId = _activeBookingId;
+    final trimmed = text.trim();
+    if (_socket == null || !_connected || bookingId == null) return false;
+    _socket!.emit('chat_message', {
+      'booking_id': bookingId,
+      'message': trimmed,
+      'sender_role': senderRole,
+      'ts': DateTime.now().toIso8601String(),
+    });
+    return true;
   }
 
   void _setConnected(bool connected) {
@@ -171,10 +234,11 @@ class BookingRealtimeService {
   void _startPollingIfDisconnected() {
     if (_pollTimer != null || _activeBookingId == null) return;
 
-    int tick = 0;
-    double simProgress = 0.0;
-    const double startOffsetLat = 0.0095;
-    const double startOffsetLng = 0.0082;
+    // Reset per-session simulation state.
+    _simStartLat = null;
+    _simStartLng = null;
+    _simProgress = 0.0;
+    _simTick = 0;
 
     _pollTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) async {
       final id = _activeBookingId;
@@ -185,7 +249,7 @@ class BookingRealtimeService {
         return;
       }
 
-      tick++;
+      _simTick++;
 
       // In offline / demo mode, simulate live worker connection & movement
       try {
@@ -197,21 +261,37 @@ class BookingRealtimeService {
             timestamp: DateTime.now(),
           ));
         }
+        // Real backend reachable: seed sim target from the booking's actual
+        // service address so any simulated motion stays geographically sane.
+        if (booking.latitude != 0 || booking.longitude != 0) {
+          _simTargetLat = booking.latitude;
+          _simTargetLng = booking.longitude;
+        }
       } catch (_) {
-        // Backend offline -> run live demo simulation
-        if (!_connected && tick >= 2) {
-          if (!_connectionController.isClosed) {
-            _connectionController.add(true);
-          }
+        // Backend offline -> run live demo simulation.
+        // The simulated worker converges on the CUSTOMER'S CURRENT LOCATION
+        // (never a hardcoded city — fixes map-jumping bug).
+        final targetLat = _simTargetLat;
+        final targetLng = _simTargetLng;
+
+        // First tick without a known target: wait for the UI to provide one
+        // via [setSimulationTarget] before emitting pings.
+        if (targetLat == null || targetLng == null) return;
+
+        // Start ~1.1km NE of the customer so the approach reads naturally.
+        _simStartLat ??= targetLat + 0.0072;
+        _simStartLng ??= targetLng + 0.0068;
+
+        if (_simTick >= 2 && !_connectionController.isClosed) {
+          _connectionController.add(true);
         }
 
-        final targetLat = 12.9716;
-        final targetLng = 77.6412;
-
-        // Progress simulation
-        simProgress = math.min(1.0, simProgress + 0.07);
-        final currentLat = targetLat + (startOffsetLat * (1.0 - simProgress));
-        final currentLng = targetLng + (startOffsetLng * (1.0 - simProgress));
+        _simProgress = math.min(1.0, _simProgress + 0.06);
+        final ease = Curves.easeInOut.transform(_simProgress);
+        final currentLat =
+            _simStartLat! + (targetLat - _simStartLat!) * ease;
+        final currentLng =
+            _simStartLng! + (targetLng - _simStartLng!) * ease;
 
         if (!_locationController.isClosed) {
           _locationController.add(WorkerPing(
@@ -226,13 +306,13 @@ class BookingRealtimeService {
         // Timeline simulation
         if (!_statusController.isClosed) {
           BookingStatus simulatedStatus;
-          if (tick < 3) {
+          if (_simTick < 3) {
             simulatedStatus = BookingStatus.accepted;
-          } else if (tick < 10) {
+          } else if (_simTick < 10) {
             simulatedStatus = BookingStatus.enRoute;
-          } else if (tick < 14) {
+          } else if (_simTick < 14) {
             simulatedStatus = BookingStatus.arrived;
-          } else if (tick < 18) {
+          } else if (_simTick < 18) {
             simulatedStatus = BookingStatus.started;
           } else {
             simulatedStatus = BookingStatus.completed;
@@ -248,6 +328,16 @@ class BookingRealtimeService {
     });
   }
 
+  /// Demo-mode convergence target. The tracking screen sets this from the
+  /// user's active location so offline simulations stay around the user.
+  double? _simTargetLat;
+  double? _simTargetLng;
+
+  void setSimulationTarget(LatLng customerLocation) {
+    _simTargetLat = customerLocation.latitude;
+    _simTargetLng = customerLocation.longitude;
+  }
+
   void _stopPolling() {
     _pollTimer?.cancel();
     _pollTimer = null;
@@ -261,6 +351,9 @@ class BookingRealtimeService {
     } catch (_) {}
     _socket = null;
     _activeBookingId = null;
+    _simStartLat = null;
+    _simStartLng = null;
+    _simProgress = 0.0;
     if (_connected) {
       _connected = false;
       if (!_connectionController.isClosed) _connectionController.add(false);
@@ -304,7 +397,7 @@ double bearingDegrees(double lat1, double lng1, double lat2, double lng2) {
 
 /// Interpolate along [points] at fraction t ∈ [0,1].
 LatLng interpolateAlong(List<LatLng> points, double t) {
-  if (points.isEmpty) return const LatLng(28.61, 77.21);
+  if (points.isEmpty) return ServiceRegion.defaultCenter;
   if (points.length == 1) return points.first;
   final clamped = t.clamp(0.0, 1.0);
   final scaled = clamped * (points.length - 1);

@@ -12,6 +12,7 @@ import '../../providers/booking_provider.dart';
 import '../../providers/nearby_workers_provider.dart';
 import '../../services/location_service.dart';
 import '../../services/mock_data_service.dart';
+import '../../widgets/support_assistant.dart';
 import '../../widgets/app_tiles.dart';
 import '../../widgets/avatar_badge.dart';
 import '../../widgets/section_header.dart';
@@ -80,6 +81,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
+      // SahaKarya Assist — floating support assistant entry point.
+      floatingActionButton: SupportAssistantFAB(userName: userName),
       body: RefreshIndicator(
         color: AppColors.primary,
         backgroundColor: Colors.white,

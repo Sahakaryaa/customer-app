@@ -180,7 +180,7 @@ class WorkerProfileScreen extends ConsumerWidget {
                           children: [
                             Text(
                               worker.federationName ??
-                                  'Delhi NCR Cooperative Federation',
+                                  'East Godavari Labour Cooperative Federation',
                               style: GoogleFonts.sora(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w700,

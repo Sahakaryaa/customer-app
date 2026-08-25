@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -74,8 +75,9 @@ class LocationService {
 
   LocationService([this.ref]);
 
-  /// Default starting location (Bengaluru Indiranagar or nearest cluster).
-  static const defaultLocation = LatLng(12.9716, 77.6412);
+  /// Last-resort fallback: Anaparthi town centre (see ServiceRegion).
+  /// The GPS chain always prefers the device's real position first.
+  static const defaultLocation = ServiceRegion.defaultCenter;
 
   /// Full chain. Never throws when [fallbackToDefault] is true.
   Future<LocationResult> resolveLocation({
@@ -179,28 +181,38 @@ class LocationService {
     return result;
   }
 
-  /// Nearest-cluster area resolution across nationwide hubs.
+  /// Nearest-hub area resolution across regional service hubs.
   String getApproximateArea(LatLng coords) {
     CooperativeLocation nearest = CooperativeLocation.clusters.first;
-    double best = double.infinity;
+    double bestKm = double.infinity;
     for (final c in CooperativeLocation.clusters) {
-      final d = _squaredDistanceKm(coords, c.coordinates);
-      if (d < best) {
-        best = d;
+      final d = haversineApproxKm(coords, c.coordinates);
+      if (d < bestKm) {
+        bestKm = d;
         nearest = c;
       }
     }
-    // If within ~40km of a cluster, show the cluster area and city
-    if (best < 0.15) {
+    // Within ~20km of a hub → show that hub's area + city.
+    if (bestKm < 20) {
       return '${nearest.areaName}, ${nearest.city}';
     }
-    return '${nearest.city} (${coords.latitude.toStringAsFixed(2)}, ${coords.longitude.toStringAsFixed(2)})';
+    // Otherwise show the region with coordinates for transparency.
+    return '${ServiceRegion.displayName} '
+        '(${coords.latitude.toStringAsFixed(2)}, ${coords.longitude.toStringAsFixed(2)})';
   }
 
-  double _squaredDistanceKm(LatLng a, LatLng b) {
-    final dLat = a.latitude - b.latitude;
-    final dLng = (a.longitude - b.longitude) * 0.86;
-    return dLat * dLat + dLng * dLng;
+  /// Lightweight haversine (km) — avoids importing the socket module here.
+  static double haversineApproxKm(LatLng a, LatLng b) {
+    const r = 6371.0;
+    double deg2rad(double d) => d * 3.141592653589793 / 180.0;
+    final dLat = deg2rad(b.latitude - a.latitude);
+    final dLng = deg2rad(b.longitude - a.longitude);
+    final s = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(deg2rad(a.latitude)) *
+            math.cos(deg2rad(b.latitude)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    return r * 2 * math.atan2(math.sqrt(s), math.sqrt(1 - s));
   }
 
   /// One-time friendly permission explainer (rounded top-28 modal per spec).
@@ -409,7 +421,7 @@ class _LocationPickerSheetState extends ConsumerState<_LocationPickerSheet> {
                             color: AppColors.ink),
                       ),
                       Text(
-                        'Cooperative federation hubs across India',
+                        '${ServiceRegion.displayName} cooperative network',
                         style: GoogleFonts.inter(
                             fontSize: 12, color: AppColors.inkSoft),
                       ),

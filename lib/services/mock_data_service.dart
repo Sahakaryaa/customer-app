@@ -5,11 +5,13 @@ import '../models/location_data.dart';
 import 'booking_socket.dart' show haversineKm;
 
 /// Mock data provider for development and seamless demo mode.
-/// Generates realistic cooperative workers around the user's active GPS/mock location.
+/// Generates realistic cooperative workers around the user's active GPS/mock
+/// location across the Godavari service region (see [ServiceRegion]).
 class MockDataService {
-  /// Default center if none provided (Bengaluru Indiranagar).
-  static const double defaultLat = 12.9716;
-  static const double defaultLng = 77.6412;
+  /// Last-resort center if none provided — Anaparthi town centre.
+  static LatLng get defaultCenter => ServiceRegion.defaultCenter;
+  static double get defaultLat => ServiceRegion.defaultCenter.latitude;
+  static double get defaultLng => ServiceRegion.defaultCenter.longitude;
 
   /// In-memory storage for bookings created during the active demo session.
   static final List<Booking> inMemoryBookings = [];
@@ -43,6 +45,9 @@ class MockDataService {
   }
 
   /// Simulated nearby workers around the user's active coordinates.
+  ///
+  /// Offsets are relative to whatever centre the app is actually at, so
+  /// results stay within a realistic 400 m – 4 km ring of the true position.
   static List<Worker> getMockWorkers({String? serviceType, LatLng? centerLocation}) {
     final baseLat = centerLocation?.latitude ?? defaultLat;
     final baseLng = centerLocation?.longitude ?? defaultLng;
@@ -52,7 +57,7 @@ class MockDataService {
     final workerTemplates = [
       (
         id: 'w1',
-        name: 'Ramesh Kumar',
+        name: 'Rambabu Koya',
         skills: ['electrician', 'plumber'],
         primary: 'electrician',
         status: 'verified',
@@ -64,7 +69,7 @@ class MockDataService {
       ),
       (
         id: 'w2',
-        name: 'Sunita Devi',
+        name: 'Padmavathi Sunkara',
         skills: ['cleaner', 'caregiver'],
         primary: 'cleaner',
         status: 'verified',
@@ -76,7 +81,7 @@ class MockDataService {
       ),
       (
         id: 'w3',
-        name: 'Venkat Rao',
+        name: 'Venkata Rao Nallamilli',
         skills: ['carpenter', 'painter'],
         primary: 'carpenter',
         status: 'verified',
@@ -88,7 +93,7 @@ class MockDataService {
       ),
       (
         id: 'w4',
-        name: 'Lakshmi Narayan',
+        name: 'Lakshmi Narayana Pithani',
         skills: ['electrician'],
         primary: 'electrician',
         status: 'verified',
@@ -100,7 +105,7 @@ class MockDataService {
       ),
       (
         id: 'w5',
-        name: 'Meera Bai',
+        name: 'Meena Rokkam',
         skills: ['cleaner'],
         primary: 'cleaner',
         status: 'verified',
@@ -112,7 +117,7 @@ class MockDataService {
       ),
       (
         id: 'w6',
-        name: 'Ajay Singh',
+        name: 'Ajay Kumar Dandu',
         skills: ['plumber', 'carpenter'],
         primary: 'plumber',
         status: 'verified',
@@ -124,7 +129,7 @@ class MockDataService {
       ),
       (
         id: 'w7',
-        name: 'Priya Sharma',
+        name: 'Priya Dharshini Ganta',
         skills: ['caregiver'],
         primary: 'caregiver',
         status: 'verified',
@@ -136,7 +141,7 @@ class MockDataService {
       ),
       (
         id: 'w8',
-        name: 'Ganesh Reddy',
+        name: 'Ganesh Vaddi',
         skills: ['driver'],
         primary: 'driver',
         status: 'verified',
@@ -148,7 +153,7 @@ class MockDataService {
       ),
       (
         id: 'w9',
-        name: 'Ravi Teja',
+        name: 'Ravi Teja Kandrakota',
         skills: ['painter', 'gardener'],
         primary: 'painter',
         status: 'verified',
@@ -160,7 +165,7 @@ class MockDataService {
       ),
       (
         id: 'w10',
-        name: 'Kavitha M',
+        name: 'Kavitha Yellapragada',
         skills: ['gardener', 'cleaner'],
         primary: 'gardener',
         status: 'verified',
@@ -202,22 +207,23 @@ class MockDataService {
   }
 
   /// Simulated booking history for the demo user including any created in-session.
+  /// Addresses reference real landmarks around the Godavari service region.
   static List<Booking> getMockBookingHistory({LatLng? userLocation, String? areaName}) {
     final baseLat = userLocation?.latitude ?? defaultLat;
     final baseLng = userLocation?.longitude ?? defaultLng;
-    final area = areaName ?? 'Nearby Cooperative Hub';
+    final area = areaName ?? 'Anaparthi Town';
 
     final defaultPastBookings = [
       Booking(
         id: 'b_sample_1',
         customerId: 'demo_customer',
         workerId: 'w1',
-        workerName: 'Ramesh Kumar',
+        workerName: 'Rambabu Koya',
         serviceType: 'electrician',
         status: BookingStatus.completed,
         latitude: baseLat + 0.002,
         longitude: baseLng + 0.001,
-        address: '$area, Main Street',
+        address: '$area, near Old Bus Stand Road',
         price: 450.0,
         createdAt: DateTime.now().subtract(const Duration(days: 3)),
       ),
@@ -225,12 +231,12 @@ class MockDataService {
         id: 'b_sample_2',
         customerId: 'demo_customer',
         workerId: 'w2',
-        workerName: 'Sunita Devi',
+        workerName: 'Padmavathi Sunkara',
         serviceType: 'cleaner',
         status: BookingStatus.completed,
         latitude: baseLat - 0.001,
         longitude: baseLng + 0.002,
-        address: '$area, Sector Block',
+        address: '$area, Ward 7 residential block',
         price: 350.0,
         createdAt: DateTime.now().subtract(const Duration(days: 7)),
       ),
@@ -238,12 +244,12 @@ class MockDataService {
         id: 'b_sample_3',
         customerId: 'demo_customer',
         workerId: 'w3',
-        workerName: 'Venkat Rao',
+        workerName: 'Venkata Rao Nallamilli',
         serviceType: 'carpenter',
         status: BookingStatus.completed,
         latitude: baseLat + 0.004,
         longitude: baseLng - 0.002,
-        address: '$area, Artisans Hub',
+        address: '$area, near Panchayat Office Street',
         price: 800.0,
         createdAt: DateTime.now().subtract(const Duration(days: 14)),
       ),
@@ -271,7 +277,7 @@ class MockDataService {
       id: id,
       customerId: 'demo_customer',
       workerId: 'w1',
-      workerName: 'Ramesh Kumar',
+      workerName: 'Rambabu Koya',
       serviceType: 'electrician',
       status: BookingStatus.accepted,
       latitude: lat,
@@ -318,22 +324,21 @@ class MockDataService {
     }
   }
 
-  /// Simulated worker reviews
+  /// Simulated worker reviews from regional customers.
   static List<Map<String, dynamic>> getMockReviews() => [
         {
-          'customer_name': 'Amit Verma',
+          'customer_name': 'Srinivas Murthy',
           'rating': 5,
           'comment':
-              'Prompt arrival and diagnosed the circuit issue immediately. Transparent cooperative pricing.',
+              'Reached within 20 minutes to our street off the Rajahmundry road and fixed the short circuit immediately. Transparent cooperative pricing.',
           'time': '2 days ago',
         },
         {
-          'customer_name': 'Pooja Sharma',
+          'customer_name': 'Bhavani Chaganti',
           'rating': 5,
           'comment':
-              'Very polite and thorough with the repairs. Great to see social security contribution included.',
+              'Very polite and thorough with the repairs. Knowing 5% goes to the welfare fund makes it easy to recommend.',
           'time': '1 week ago',
         },
       ];
 }
-
