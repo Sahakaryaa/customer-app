@@ -102,6 +102,19 @@ class ApiClient {
     return 'Something went wrong. Please try again.';
   }
 
+  /// True when [error] is a transport-level failure (server unreachable /
+  /// offline) as opposed to an HTTP rejection like 401/400. Only transport
+  /// failures may fall back to demo mode.
+  static bool isConnectionError(Object error) {
+    if (error is DioException) {
+      return error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.connectionError;
+    }
+    return false;
+  }
+
   // ──────────── Auth ────────────
 
   /// POST /auth/register {name, phone, password} → TokenResponse
@@ -165,7 +178,9 @@ class ApiClient {
   // ──────────── Bookings ────────────
 
   /// POST /bookings — FLAT payload per contract:
-  /// {service_type, description?, price, lat, lng, address?}
+  /// {service_type, description?, price, lat, lng, address?, worker_id?}
+  /// When [workerId] is set (direct hire) the backend pins the booking to
+  /// that specific worker instead of auto-matching.
   Future<Booking> createBooking({
     required String serviceType,
     required double price,
@@ -173,12 +188,14 @@ class ApiClient {
     required double lng,
     String? description,
     String? address,
+    String? workerId,
   }) async {
     final response = await _dio.post('/bookings', data: {
       'service_type': serviceType,
       'price': price,
       'lat': lat,
       'lng': lng,
+      if (workerId != null && workerId.isNotEmpty) 'worker_id': workerId,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (address != null && address.trim().isNotEmpty)

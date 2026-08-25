@@ -110,6 +110,8 @@ class BookingRealtimeService {
   Stream<ChatMessage> get chatStream => _chatController.stream;
 
   /// Connect + join the booking room. Safe to call repeatedly.
+  /// The JWT travels in the handshake auth payload — the server refuses
+  /// unauthenticated sockets, so we resolve the token before connecting.
   void connect(String bookingId) {
     if (_activeBookingId == bookingId && _socket != null) return;
     disconnect();
@@ -117,11 +119,26 @@ class BookingRealtimeService {
     _activeBookingId = bookingId;
 
     try {
+      _api.getToken().then((token) {
+        if (_activeBookingId != bookingId || _socket != null) return;
+        _openSocket(bookingId, token);
+      });
+    } catch (_) {
+      _setConnected(false);
+    }
+
+    // Defensive: start polling immediately in case the handshake stalls.
+    _startPollingIfDisconnected();
+  }
+
+  void _openSocket(String bookingId, String? token) {
+    try {
       _socket = io.io(
         kApiBaseUrl,
         io.OptionBuilder()
             .setTransports(['websocket'])
             .setPath('/socket.io')
+            .setAuth({'token': token})
             .enableReconnection()
             .setReconnectionDelay(1500)
             .build(),
@@ -366,6 +383,7 @@ class BookingRealtimeService {
     _statusController.close();
     _locationController.close();
     _connectionController.close();
+    _chatController.close();
   }
 }
 

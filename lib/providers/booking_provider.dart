@@ -20,7 +20,13 @@ final bookingHistoryProvider = FutureProvider<List<Booking>>((ref) async {
   try {
     final api = ref.read(apiClientProvider);
     final history = await api.getBookingHistory();
-    return [...MockDataService.inMemoryBookings, ...history];
+    // Dedup: a booking created offline then confirmed server-side would
+    // otherwise appear twice (once from the in-memory list, once from API).
+    final serverIds = history.map((b) => b.id).toSet();
+    return [
+      ...MockDataService.inMemoryBookings.where((b) => !serverIds.contains(b.id)),
+      ...history,
+    ];
   } catch (_) {
     return MockDataService.getMockBookingHistory(
       userLocation: activeLoc.coordinates,
@@ -51,6 +57,8 @@ final bookingDetailProvider =
 final activeBookingProvider = StateProvider<Booking?>((ref) => null);
 
 /// Parameters for creating a real booking (flat payload per contract).
+/// [workerId] pins the booking to a specific worker (direct hire); when null
+/// the backend auto-matches nearby workers.
 class NewBookingParams {
   final String serviceType;
   final double price;
@@ -58,6 +66,7 @@ class NewBookingParams {
   final double lng;
   final String? description;
   final String? address;
+  final String? workerId;
 
   const NewBookingParams({
     required this.serviceType,
@@ -66,6 +75,7 @@ class NewBookingParams {
     required this.lng,
     this.description,
     this.address,
+    this.workerId,
   });
 }
 
@@ -107,11 +117,13 @@ class BookingCreationNotifier extends StateNotifier<AsyncValue<Booking?>> {
           lng: params.lng,
           description: params.description,
           address: params.address,
+          workerId: params.workerId,
         );
         state = AsyncData(booking);
         return true;
       } catch (e) {
-        // If real API creation fails (e.g. server unreachable), fall back seamlessly to demo booking
+        if (!ApiClient.isConnectionError(e)) rethrow;
+        // Server unreachable → fall back seamlessly to a demo booking
         final mockBooking = Booking(
           id: 'booking_${DateTime.now().millisecondsSinceEpoch}',
           customerId: 'demo_customer',

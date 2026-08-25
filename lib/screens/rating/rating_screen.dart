@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_colors.dart';
 import '../../providers/booking_provider.dart';
+import '../../providers/auth_provider.dart' show useMockData;
 import '../../services/api_client.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_snack_bar.dart';
@@ -66,12 +67,20 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
         });
         return;
       }
-      // Demo / offline fallback: treat as submitted with gratitude
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _isSubmitting = false;
-        _submitted = true;
-      });
+      if (useMockData || ApiClient.isConnectionError(e)) {
+        // Demo / offline fallback: treat as submitted with gratitude
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _isSubmitting = false;
+          _submitted = true;
+        });
+        return;
+      }
+      // Real failure (booking not completed, server error…) — surface it.
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      AppSnackBar.show(context, ApiClient.friendlyError(e),
+          type: SnackType.error);
     }
   }
 

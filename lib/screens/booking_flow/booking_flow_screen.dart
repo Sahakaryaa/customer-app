@@ -103,6 +103,8 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
       lng: _pickedLocation.longitude,
       description: description,
       address: _address,
+      // Direct hire — pin the booking to the worker chosen on the profile/map card.
+      workerId: widget.workerId,
     );
 
     final ok = await ref.read(bookingCreationProvider.notifier).create(params);

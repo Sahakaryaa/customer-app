@@ -794,7 +794,15 @@ class _FeaturedWorkerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials = name.trim().split(RegExp(r'\s+')).map((e) => e[0]).take(2).join().toUpperCase();
+    // Guard against empty/whitespace names — `e[0]` on an empty word throws RangeError.
+    final initials = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .map((e) => e[0])
+        .take(2)
+        .join()
+        .toUpperCase();
 
     return GestureDetector(
       onTap: onTap,

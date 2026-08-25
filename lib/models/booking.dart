@@ -76,7 +76,7 @@ class Booking {
       scheduledTime: json['scheduled_time'] != null
           ? DateTime.tryParse(json['scheduled_time'] as String)
           : null,
-      isEmergency: false,
+      isEmergency: json['is_emergency'] as bool? ?? false,
       createdAt: json['created_at'] != null
           ? (DateTime.tryParse(json['created_at'] as String) ??
               DateTime.now())

@@ -55,7 +55,8 @@ class AssistantBrain {
       return AssistantReply(
         'Our cooperative pricing is flat and transparent — no surge:\n\n'
         '${lines.join('\n')}\n\n'
-        'Only 5–10% goes to platform operations. Compare that with the '
+        'Zero commission is taken from customers. Workers contribute exactly '
+        '5% of each job to their welfare fund — compare that with the '
         '20–30% private apps take.',
         followUps: ['What is the welfare fund?', 'Book a cleaner'],
       );

@@ -10,7 +10,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     DevicePreview(
-      enabled: kIsWeb,
+      enabled: false, // FILMING: was kIsWeb — restore after motion-graphics shoot
       builder: (context) => const ProviderScope(child: SahaKaryaCustomerApp()),
     ),
   );

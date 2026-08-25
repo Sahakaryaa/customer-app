@@ -485,8 +485,15 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
                       const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => context.push(
-                              '/booking/new?worker=${_selectedWorker!.id}&service=${_selectedWorker!.skills.first}'),
+                          onPressed: () {
+                            final worker = _selectedWorker!;
+                            // Empty skills array would make .first throw StateError.
+                            final skill = worker.skills.isNotEmpty
+                                ? worker.skills.first
+                                : '';
+                            context.push(
+                                '/booking/new?worker=${worker.id}&service=$skill');
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primaryGradient.colors.first,
                             foregroundColor: Colors.white,

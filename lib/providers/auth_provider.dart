@@ -108,8 +108,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         try {
           final user = await _api.getCurrentUser();
           state = state.copyWith(user: user, isLoading: false, isDemo: false, clearError: true);
-        } catch (_) {
-          // If server is unreachable, fall back to offline demo session rather than kicking to login
+        } catch (e) {
+          if (!ApiClient.isConnectionError(e)) {
+            // Invalid/expired token → drop it and require a fresh login.
+            await _api.clearToken();
+            useMockData = false;
+            state = state.copyWith(isLoading: false, clearUser: true);
+            return;
+          }
+          // Server unreachable → keep an offline demo session rather than kicking to login
           useMockData = true;
           state = state.copyWith(
             user: User(
@@ -133,6 +140,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   /// Register a new customer. POST /auth/register → TokenResponse {user}.
+  /// Falls back to local demo registration ONLY when the server is
+  /// unreachable; HTTP rejections (duplicate phone, validation) surface as
+  /// errors instead of silently faking success.
   Future<bool> register({
     required String phone,
     required String name,
@@ -170,7 +180,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(user: user, isLoading: false, isDemo: false);
         return true;
       } catch (e) {
-        // If server is unreachable, seamlessly fall back to local demo registration
+        if (!ApiClient.isConnectionError(e)) rethrow;
+        // Server unreachable → seamless offline demo registration
         useMockData = true;
         await _api.saveToken('demo_token_${DateTime.now().millisecondsSinceEpoch}');
         state = state.copyWith(
@@ -196,6 +207,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   /// Login with phone + password. POST /auth/login → TokenResponse {user}.
+  /// Falls back to offline demo ONLY on transport errors — wrong credentials
+  /// and server errors are surfaced to the user.
   Future<bool> login({
     required String phone,
     required String password,
@@ -228,7 +241,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(user: user, isLoading: false, isDemo: false);
         return true;
       } catch (e) {
-        // If server is unreachable, fall back to offline demo login
+        if (!ApiClient.isConnectionError(e)) rethrow;
+        // Server unreachable → offline demo login
         useMockData = true;
         await _api.saveToken('demo_token_${DateTime.now().millisecondsSinceEpoch}');
         state = state.copyWith(
