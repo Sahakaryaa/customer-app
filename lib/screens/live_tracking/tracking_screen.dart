@@ -47,6 +47,10 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
   double _workerBearing = 0;
   bool _connected = false;
   bool _cancelling = false;
+  // Maps UX rule [Fundamental]: never fight an active pan. Once the user
+  // drags the map themselves we stop auto-fitting the camera until they
+  // explicitly tap re-center.
+  bool _userPanned = false;
 
   // Smooth interpolation between successive location pings.
   late final AnimationController _moveCtrl;
@@ -171,30 +175,49 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
 
   void _animateTo(LatLng target) {
     setState(() {
-      _workerBearing = bearingDegrees(
-          _workerPos.latitude, _workerPos.longitude,
-          target.latitude, target.longitude);
-      _from = _workerPos;
+      // Resume from where the marker is CURRENTLY rendered — if the previous
+      // leg was interrupted mid-flight, starting from the raw old fix would
+      // visibly yank the marker backwards on every new ping.
+      final renderedNow = interpolateAlong(
+        [_from, _to],
+        Curves.easeInOut.transform(_moveCtrl.value),
+      );
+      _from = _moveCtrl.isAnimating ? renderedNow : _workerPos;
       _to = target;
+      // Commit the logical position to the newest fix. Without this, the
+      // polyline, ETA distance, bearing and camera framing all keep reading
+      // the stale first fix while the marker loops back to it.
+      _workerPos = target;
+      _workerBearing = bearingDegrees(
+          _from.latitude, _from.longitude,
+          target.latitude, target.longitude);
     });
-    _moveCtrl.forward(from: 0);
+    _moveCtrl.forward(from: 0).whenComplete(() => _keepBothPinsVisible());
+  }
+
+  /// While following (the user hasn't panned), gently re-frame only when a
+  /// pin fully leaves the viewport — never mid-gesture, never fighting pans.
+  void _keepBothPinsVisible() {
+    if (_userPanned || !_hasWorkerPos) return;
+    try {
+      final bounds = _mapController.camera.visibleBounds;
+      if (!bounds.contains(_workerPos) ||
+          !bounds.contains(_customerLocation)) {
+        _fitCamera();
+      }
+    } catch (_) {// Camera not ready yet — ignore.
+    }
   }
 
   void _fitCamera() {
-    final mid = LatLng(
-      (_customerLocation.latitude + _workerPos.latitude) / 2,
-      (_customerLocation.longitude + _workerPos.longitude) / 2,
+    // Purpose-built camera fit: frames BOTH pins with screen-edge padding
+    // (extra top padding keeps pins clear of the back/status overlay).
+    _mapController.fitCamera(
+      CameraFit.coordinates(
+        coordinates: [_customerLocation, _workerPos],
+        padding: const EdgeInsets.fromLTRB(56, 140, 56, 64),
+      ),
     );
-    final km = haversineKm(_customerLocation.latitude,
-        _customerLocation.longitude, _workerPos.latitude, _workerPos.longitude);
-    final zoom = (km < 0.4)
-        ? 15.5
-        : km < 1
-            ? 14.6
-            : km < 3
-                ? 13.4
-                : 12.4;
-    _mapController.move(mid, zoom);
   }
 
   int get _etaMinutes {
@@ -265,10 +288,10 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkStart,
+      backgroundColor: AppColors.bg,
       body: Stack(
         children: [
-          // ── Full-bleed dark hero map ──
+          // ── Full-bleed map hero ──
           Positioned.fill(
             bottom: MediaQuery.of(context).size.height * 0.40,
             child: AnimatedBuilder(
@@ -282,23 +305,31 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                 initialZoom: 14.2,
                 minZoom: 11,
                 maxZoom: 18,
+                onMapEvent: (event) {
+                  // Distinguish genuine user pans from programmatic camera
+                  // moves so follow-mode never fights the user's hand.
+                  if (event is MapEventMoveStart && !_userPanned) {
+                    setState(() => _userPanned = true);
+                  }
+                },
               ),
               children: [
-                AppTiles.darkAll(),
+                AppTiles.voyager(),
                 PolylineLayer(
                   polylines: [
-                    // Casing
+                    // Casing — white halo keeps the route readable on the
+                    // light Voyager basemap.
                     Polyline(
                       points: [_workerPos, _customerLocation],
                       strokeWidth: 7,
-                      color: Colors.black.withValues(alpha: 0.45),
+                      color: Colors.white.withValues(alpha: 0.9),
                       strokeCap: StrokeCap.round,
                     ),
                     // Animated dashed route driver→you
                     Polyline(
                       points: [_workerPos, _customerLocation],
                       strokeWidth: 4.5,
-                      color: AppColors.primaryLight,
+                      color: AppColors.primaryDeep,
                       strokeCap: StrokeCap.round,
                       pattern: StrokePattern.dashed(
                         segments: const [12, 9],
@@ -400,7 +431,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                       ),
                   ],
                 ),
-                AppTiles.attribution(dark: true),
+                AppTiles.attribution(),
               ],
             ),
             ),
@@ -427,59 +458,58 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
                     ],
                   ).animate().fade(duration: 300.ms),
                   if (!_connected)
-                    Container(
-                      margin: const EdgeInsets.only(top: 10),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 13,
-                            height: 13,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.warning,
+                    Builder(builder: (context) {
+                      final banner = Container(
+                        margin: const EdgeInsets.only(top: 10),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.95),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 13,
+                              height: 13,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.warning,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Reconnecting to live updates…',
-                            style: GoogleFonts.inter(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.warning,
+                            const SizedBox(width: 8),
+                            Text(
+                              'Reconnecting to live updates…',
+                              style: GoogleFonts.inter(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.warning,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    )
-                        .animate(onPlay: (c) => c.repeat(reverse: true))
-                        .fade(begin: 1, end: 0.55,
-                            duration: 900.ms),
+                          ],
+                        ),
+                      );
+                      // Attention pulse is decorative — static under the OS
+                      // remove-animations accessibility setting.
+                      if (_reducedMotion) return banner;
+                      return banner
+                          .animate(onPlay: (c) => c.repeat(reverse: true))
+                          .fade(begin: 1, end: 0.55, duration: 900.ms);
+                    }),
                 ],
               ),
             ),
           ),
 
-          // ── Recenter control (fits both pins when tracking) ──
+          // ── Recenter control (fits both pins; thumb-zone placement) ──
           Align(
             alignment: const Alignment(1.0, -0.30),
             child: Padding(
               padding: const EdgeInsets.only(right: 16),
               child: _circleBtn(Icons.my_location_rounded, () {
-                final center = _hasWorkerPos
-                    ? LatLng(
-                        (_customerLocation.latitude + _workerPos.latitude) / 2,
-                        (_customerLocation.longitude +
-                                _workerPos.longitude) /
-                            2)
-                    : _customerLocation;
-                _mapController.move(center, 14.5);
+                setState(() => _userPanned = false); // resume follow
+                _fitCamera();
               }),
             ),
           ).animate().fade(duration: 300.ms),
@@ -625,8 +655,12 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
   Widget _circleBtn(IconData icon, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.all(9),
+        // 44px minimum tap target (a11y rule).
+        width: 44,
+        height: 44,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: Colors.white.withValues(alpha: 0.94),

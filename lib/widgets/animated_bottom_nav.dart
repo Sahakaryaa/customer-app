@@ -99,7 +99,7 @@ class _NavItemView extends StatelessWidget {
             AnimatedScale(
               scale: selected ? 1.12 : 1.0,
               duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutBack,
+              curve: Curves.easeOutCubic,
               child: Icon(item.icon, size: 21, color: color),
             ),
             const SizedBox(height: 3),

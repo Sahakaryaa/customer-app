@@ -193,8 +193,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ).animate().scale(
                                   begin: const Offset(0.6, 0.6),
                                   end: const Offset(1, 1),
-                                  curve: Curves.elasticOut,
-                                  duration: 600.ms,
+                                  curve: Curves.easeOutCubic,
+                                  duration: 300.ms,
                                 ),
                           ],
                         ),

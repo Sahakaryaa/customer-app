@@ -114,8 +114,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           ).animate().scale(
                                 begin: const Offset(0.5, 0.5),
                                 end: const Offset(1, 1),
-                                curve: Curves.elasticOut,
-                                duration: 700.ms,
+                                curve: Curves.easeOutCubic,
+                                duration: 350.ms,
                               ),
                           const SizedBox(width: 10),
                           RichText(

@@ -211,8 +211,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               .scale(
                 begin: const Offset(0.7, 0.7),
                 end: const Offset(1, 1),
-                curve: Curves.elasticOut,
-                duration: 700.ms,
+                curve: Curves.easeOutCubic,
+                duration: 400.ms,
               ),
 
           const SizedBox(height: 40),
@@ -275,8 +275,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             .scale(
               begin: const Offset(0.4, 0.4),
               end: const Offset(1, 1),
-              curve: Curves.elasticOut,
-              duration: 800.ms,
+              curve: Curves.easeOutCubic,
+              duration: 400.ms,
             )
             .fadeIn(duration: 250.ms),
         const SizedBox(height: 16),

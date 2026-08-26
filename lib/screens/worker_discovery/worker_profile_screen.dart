@@ -10,6 +10,7 @@ import '../../widgets/avatar_badge.dart';
 import '../../widgets/count_up_text.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/skeleton_box.dart';
 
 /// Worker profile — parallax gradient header w/ Hero'd avatar, stats row
 /// (rating CountUp / jobs / distance), certification chip and sticky CTA.
@@ -97,8 +98,8 @@ class WorkerProfileScreen extends ConsumerWidget {
                               .scale(
                                 begin: const Offset(0.6, 0.6),
                                 end: const Offset(1, 1),
-                                curve: Curves.elasticOut,
-                                duration: 650.ms,
+                                curve: Curves.easeOutCubic,
+                                duration: 350.ms,
                               )
                               .fadeIn(duration: 250.ms),
                           const SizedBox(height: 14),
@@ -323,17 +324,17 @@ class WorkerProfileScreen extends ConsumerWidget {
   }
 
   Widget _buildLoading() {
-    return const Center(
+    // Skeleton mirrors the profile layout (shimmer, never a bare spinner).
+    return const Padding(
+      padding: EdgeInsets.all(20),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: CircularProgressIndicator(
-                strokeWidth: 3, color: AppColors.primary),
-          ),
-          SizedBox(height: 14),
+          SkeletonBox(height: 180, borderRadius: 24),
+          SizedBox(height: 16),
+          SkeletonBox(height: 64, borderRadius: 20),
+          SizedBox(height: 12),
+          SkeletonBox(height: 120, borderRadius: 20),
         ],
       ),
     );

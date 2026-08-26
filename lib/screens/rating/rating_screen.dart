@@ -156,7 +156,7 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
                 child: AnimatedScale(
                   scale: selected ? 1.0 : 0.86,
                   duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutBack,
+                  curve: Curves.easeOutCubic,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 5),
                     child: Icon(
@@ -183,8 +183,8 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
                     .scale(
                         begin: const Offset(0.5, 0.5),
                         end: const Offset(1, 1),
-                        curve: Curves.elasticOut,
-                        duration: 550.ms),
+                        curve: Curves.easeOutCubic,
+                        duration: 350.ms),
               );
             }),
           ),
@@ -256,8 +256,8 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
                 .scale(
                   begin: const Offset(0.3, 0.3),
                   end: const Offset(1, 1),
-                  curve: Curves.elasticOut,
-                  duration: 750.ms,
+                  curve: Curves.easeOutBack,
+                  duration: 400.ms,
                 )
                 .then(delay: 250.ms)
                 .shimmer(
@@ -281,8 +281,8 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
                     .scale(
                       begin: const Offset(0, 0),
                       end: const Offset(1, 1),
-                      curve: Curves.elasticOut,
-                      duration: 500.ms,
+                      curve: Curves.easeOutBack,
+                      duration: 350.ms,
                     ),
               ),
             ),

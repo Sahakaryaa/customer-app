@@ -9,6 +9,7 @@ import '../../models/booking.dart';
 import '../../providers/booking_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/count_up_text.dart';
+import '../../widgets/skeleton_box.dart';
 
 /// Payment — clean amount hero with CountUpText, UPI/Cash method selector
 /// cards and an animated success checkmark that routes onward.
@@ -98,12 +99,17 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             Text('Payment', style: GoogleFonts.sora(fontWeight: FontWeight.w700)),
       ),
       body: bookingAsync.when(
-        loading: () => const Center(
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: CircularProgressIndicator(
-                strokeWidth: 3, color: AppColors.primary),
+        // Predictable layout → shimmer skeleton, never a bare spinner.
+        loading: () => const Padding(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            children: [
+              SkeletonBox(height: 140, borderRadius: 20),
+              SizedBox(height: 12),
+              SkeletonBox(height: 88, borderRadius: 20),
+              SizedBox(height: 12),
+              SkeletonBox(height: 56, borderRadius: 20),
+            ],
           ),
         ),
         error: (err, _) => Center(
@@ -349,8 +355,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 .scale(
                   begin: const Offset(0.3, 0.3),
                   end: const Offset(1, 1),
-                  curve: Curves.elasticOut,
-                  duration: 750.ms,
+                  curve: Curves.easeOutBack,
+                  duration: 400.ms,
                 )
                 .then(delay: 200.ms)
                 .shimmer(duration: 900.ms,

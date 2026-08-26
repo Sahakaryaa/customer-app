@@ -319,7 +319,7 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
                       child: AnimatedScale(
                         scale: isSelected ? 1.15 : 1.0,
                         duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutBack,
+                        curve: Curves.easeOutCubic,
                         child: Stack(
                           alignment: Alignment.center,
                           clipBehavior: Clip.none,
@@ -340,8 +340,8 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
                                 ),
                               ),
                             Container(
-                              width: 42,
-                              height: 42,
+                              width: 44,
+                              height: 44,
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? AppColors.amber
@@ -365,7 +365,7 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
                               child: Center(
                                 child: Icon(
                                   Icons.handyman_rounded,
-                                  size: 19,
+                                  size: 20,
                                   color: isSelected
                                       ? AppColors.ink
                                       : AppColors.primary,
@@ -385,8 +385,9 @@ class _WorkerListScreenState extends ConsumerState<WorkerListScreen>
         ),
 
         Positioned(
-          top: 14,
-          right: 14,
+          // 16px minimum edge clearance — avoids system-gesture conflicts.
+          top: 16,
+          right: 16,
           child: FloatingActionButton.small(
             heroTag: 'recenter_discovery',
             backgroundColor: Colors.white,
