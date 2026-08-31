@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/app_logo.dart';
 
 /// Login — dark gradient header + glass form card.
 /// Phone + password (min 4 chars); sent directly as `password` per contract.
@@ -93,37 +94,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     children: [
                       Row(
                         children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              gradient: AppColors.primaryGradient,
-                            ),
-                            child: const Icon(Icons.handshake_rounded,
-                                size: 24, color: Colors.white),
-                          ).animate().scale(
+                          const AppLogo(size: 48).animate().scale(
                                 begin: const Offset(0.5, 0.5),
                                 end: const Offset(1, 1),
                                 curve: Curves.easeOutCubic,
                                 duration: 350.ms,
                               ),
-                          const SizedBox(width: 10),
-                          RichText(
-                            text: TextSpan(
-                              style: GoogleFonts.sora(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              RichText(
+                                text: TextSpan(
+                                  style: GoogleFonts.sora(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                  children: const [
+                                    TextSpan(text: 'Sahakarya'),
+                                  ],
+                                ),
                               ),
-                              children: [
-                                const TextSpan(text: 'Saha'),
-                                TextSpan(
-                                    text: 'Karya',
-                                    style:
-                                        TextStyle(color: AppColors.amber)),
-                              ],
-                            ),
+                              Text(
+                                'SARATHI CUSTOMER',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.amber,
+                                  letterSpacing: 2.0,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       )

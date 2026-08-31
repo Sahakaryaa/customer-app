@@ -40,6 +40,7 @@ dependencies:
   device_preview: ^1.2.0
   # Animation & Motion
   flutter_animate: ^4.5.2
+  flutter_svg: ^2.0.17
 
   # Routing
   go_router: ^15.1.2
@@ -51,3 +52,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/

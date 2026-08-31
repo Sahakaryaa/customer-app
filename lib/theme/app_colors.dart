@@ -6,22 +6,22 @@ class AppColors {
   AppColors._();
 
   // ── Core palette ──
-  static const Color bg = Color(0xFFF6F7FB);
+  static const Color bg = Color(0xFFF7FAF8);
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color surfaceAlt = Color(0xFFEEF0F7);
+  static const Color surfaceAlt = Color(0xFFEDF2EE);
 
-  static const Color ink = Color(0xFF101828);
-  static const Color inkSoft = Color(0xFF667085);
-  static const Color inkFaint = Color(0xFF98A2B3);
+  static const Color ink = Color(0xFF101F19);
+  static const Color inkSoft = Color(0xFF4E6158);
+  static const Color inkFaint = Color(0xFF82968D);
 
-  // Primary indigo → gradient [#6A5AE0, #8E7CF0]
-  static const Color primary = Color(0xFF5B5FE9);
-  static const Color primaryDeep = Color(0xFF6A5AE0);
-  static const Color primaryLight = Color(0xFF8E7CF0);
+  // Primary Sahakarya Forest Green → gradient [#093F2B, #137A54]
+  static const Color primary = Color(0xFF0D5238);
+  static const Color primaryDeep = Color(0xFF093F2B);
+  static const Color primaryLight = Color(0xFF137A54);
 
-  // Amber CTA accent
-  static const Color amber = Color(0xFFFFB020);
-  static const Color amberSoft = Color(0xFFFFC85C);
+  // Amber / Gold CTA accent [#F5A623, #F8B63B]
+  static const Color amber = Color(0xFFF5A623);
+  static const Color amberSoft = Color(0xFFF8B63B);
 
   // Semantic
   static const Color success = Color(0xFF16A34A);
@@ -30,17 +30,17 @@ class AppColors {
   static const Color info = Color(0xFF0EA5E9);
 
   // Dark hero surfaces (splash, tracking hero)
-  static const Color darkStart = Color(0xFF0B1220);
-  static const Color darkEnd = Color(0xFF111A2C);
+  static const Color darkStart = Color(0xFF091612);
+  static const Color darkEnd = Color(0xFF0E1F1A);
 
   // Hairlines
-  static const Color border = Color(0xFFE7EAF3);
+  static const Color border = Color(0xFFDFE7E2);
 
-  // ── Legacy aliases (existing widgets keep compiling; brand now indigo/amber) ──
+  // ── Brand Aliases ──
   static const Color teal = primary;
   static const Color tealLight = primaryLight;
   static const Color orange = amber;
-  static const Color gold = warning;
+  static const Color gold = amber;
   static const Color error = danger;
   static const Color inkLight = inkSoft;
   static const Color inkMuted = inkFaint;

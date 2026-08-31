@@ -408,11 +408,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     final cat = MockDataService.serviceCategories[index];
                     final mesh =
                         AppColors.meshGradients[index % AppColors.meshGradients.length];
-                    returninə
-                    GlassCard(
+                    return SizedBox(
                       width: 86,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      borderRadius: 18,
+                      child: GlassCard(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        borderRadius: 18,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -449,6 +449,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             .animate(delay: (100 + index * 40).ms)
                             .fade(duration: 280.ms)
                             .slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+                      ),
                     );
                   },
                 ),
@@ -694,7 +695,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                \"Couldn't load nearby workers.\",
+                "Couldn't load nearby workers.",
                 style: GoogleFonts.inter(
                     fontSize: 12.5, color: AppColors.ink),
               ),
@@ -726,7 +727,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                \"Couldn't load your bookings.\",
+                "Couldn't load your bookings.",
                 style: GoogleFonts.inter(fontSize: 12.5, color: AppColors.ink),
               ),
             ),
@@ -824,7 +825,7 @@ class _FeaturedWorkerCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      '${skill[0].toUpperCase()}${skill.substring(1)}${verified ? \" • Verified\" : \"\"}',
+                      '${skill[0].toUpperCase()}${skill.substring(1)}${verified ? " • Verified" : ""}',
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         color: AppColors.inkSoft,
@@ -880,11 +881,12 @@ class _RecentBookingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      borderRadius: 20,
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        padding: const EdgeInsets.all(14),
+        borderRadius: 20,
+        child: Row(
         children: [
           Container(
             width: 44,
@@ -933,6 +935,7 @@ class _RecentBookingTile extends StatelessWidget {
           const Icon(Icons.chevron_right_rounded,
               color: AppColors.inkFaint, size: 20),
         ],
+      ),
       ),
     );
   }
