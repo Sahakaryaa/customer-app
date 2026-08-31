@@ -126,9 +126,9 @@ class _BookingFlowScreenState extends ConsumerState<BookingFlowScreen> {
     final booking = ref.read(bookingCreationProvider).valueOrNull;
     if (booking != null) {
       ref.read(activeBookingProvider.notifier).state = booking;
-      AppSnackBar.show(context, 'Booking created — choose payment',
+      AppSnackBar.show(context, 'Booking confirmed — finding nearby partner',
           type: SnackType.success);
-      context.go('/booking/${booking.id}/payment');
+      context.go('/booking/${booking.id}/tracking');
     }
   }
 

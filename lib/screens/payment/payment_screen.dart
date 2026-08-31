@@ -70,18 +70,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       _isPaying = false;
       _isPaid = true;
     });
-    // Route onwards after the celebration settles.
-    Future.delayed(const Duration(milliseconds: 1600), () {
+    // Route onwards to rating screen after celebration settles
+    Future.delayed(const Duration(milliseconds: 1400), () {
       if (!mounted) return;
-      final booking = ref.read(activeBookingProvider);
-      final isActive = booking?.isActive ?? true;
-      if (isActive) {
-        context.go('/booking/${widget.bookingId}/tracking');
-      } else if (booking?.rateable ?? false) {
-        context.go('/booking/${widget.bookingId}/rate');
-      } else {
-        context.go('/home');
-      }
+      context.go('/booking/${widget.bookingId}/rate');
     });
   }
 

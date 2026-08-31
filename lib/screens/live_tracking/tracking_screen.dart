@@ -793,7 +793,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
           Expanded(
             child: Text(
               _status == BookingStatus.completed
-                  ? 'Service completed — rate your experience'
+                  ? 'Service completed — settle invoice'
                   : 'Service in progress at your location.',
               style: GoogleFonts.inter(
                 fontSize: 13,
@@ -804,18 +804,25 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
           ),
           if (_status == BookingStatus.completed)
             GestureDetector(
-              onTap: () => context.go('/booking/${widget.bookingId}/rate'),
+              onTap: () => context.go('/booking/${widget.bookingId}/payment'),
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   gradient: AppColors.amberGradient,
                   borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.amber.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                child: Text('Rate',
+                child: Text('Pay Bill',
                     style: GoogleFonts.inter(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
                         color: AppColors.ink)),
               ),
             ),

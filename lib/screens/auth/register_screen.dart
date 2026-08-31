@@ -8,6 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/glass_card.dart';
 
+import '../../widgets/legal_policy_sheet.dart';
+
 /// Register — gradient header + glass form card.
 /// Name, phone, password (min 4 chars); sent directly as `password`.
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -22,6 +24,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscure = true;
+  bool _agreeToPolicies = true;
 
   @override
   void dispose() {
@@ -52,6 +55,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     if (password.length < 4) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password must be at least 4 characters')),
+      );
+      return;
+    }
+    if (!_agreeToPolicies) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please agree to the Terms of Service & Privacy Policy')),
       );
       return;
     }
@@ -243,7 +253,95 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 16),
+                      // Terms & Privacy agreement
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: Checkbox(
+                              value: _agreeToPolicies,
+                              activeColor: AppColors.primary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              onChanged: (val) =>
+                                  setState(() => _agreeToPolicies = val ?? false),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Wrap(
+                              children: [
+                                Text(
+                                  'I agree to SahaKarya\'s ',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12.5,
+                                    color: AppColors.inkSoft,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () => LegalPolicySheet.show(context,
+                                      doc: LegalDocType.termsOfService),
+                                  child: Text(
+                                    'Terms of Service',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  ', ',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12.5,
+                                    color: AppColors.inkSoft,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () => LegalPolicySheet.show(context,
+                                      doc: LegalDocType.privacyPolicy),
+                                  child: Text(
+                                    'Privacy Policy',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  ' & ',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12.5,
+                                    color: AppColors.inkSoft,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () => LegalPolicySheet.show(context,
+                                      doc: LegalDocType.cooperativeCharter),
+                                  child: Text(
+                                    'Cooperative Charter',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
                       AppButton(
                         label: 'Create Account',
                         isLoading: authState.isLoading,

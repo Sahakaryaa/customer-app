@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/avatar_badge.dart';
+import '../../widgets/legal_policy_sheet.dart';
 
 /// User profile — gradient header card, menu, logout.
 class ProfileScreen extends ConsumerWidget {
@@ -107,14 +108,33 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 onTap: () {}),
             _menuItem(context,
+                icon: Icons.shield_outlined,
+                label: 'Privacy Policy',
+                subtitle: 'Non-extractable data protection',
+                onTap: () => LegalPolicySheet.show(context,
+                    doc: LegalDocType.privacyPolicy)),
+            _menuItem(context,
+                icon: Icons.gavel_rounded,
+                label: 'Terms of Service',
+                subtitle: 'Fair pricing & cancellation rules',
+                onTap: () => LegalPolicySheet.show(context,
+                    doc: LegalDocType.termsOfService)),
+            _menuItem(context,
+                icon: Icons.volunteer_activism_outlined,
+                label: 'Cooperative Charter',
+                subtitle: '5% Welfare allocation & worker dignity',
+                onTap: () => LegalPolicySheet.show(context,
+                    doc: LegalDocType.cooperativeCharter)),
+            _menuItem(context,
                 icon: Icons.help_outline_rounded,
                 label: 'Help & Support',
                 onTap: () {}),
             _menuItem(context,
                 icon: Icons.info_outline_rounded,
-                label: 'About',
-                subtitle: 'SahaKarya v1.0 — Cooperative Gig Platform',
-                onTap: () {}),
+                label: 'About SahaKarya',
+                subtitle: 'v1.0.0 — Cooperative Gig Services Platform',
+                onTap: () => LegalPolicySheet.show(context,
+                    doc: LegalDocType.cooperativeCharter)),
 
             const SizedBox(height: 14),
             AppButton(
